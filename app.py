@@ -9,7 +9,7 @@ from email.mime.multipart import MIMEMultipart
 
 # Configuration
 DATA_FILE = "signup_data.json"
-MAX_PLAYERS_PER_TYPE = 2
+MAX_PLAYERS_PER_TYPE = 10
 
 # Email configuration (set via environment variables or Streamlit secrets)
 EMAIL_CONFIG = {
