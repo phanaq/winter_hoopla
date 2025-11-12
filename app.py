@@ -494,7 +494,7 @@ def main():
     # Footer with email configuration status
     st.markdown("---")
     if EMAIL_CONFIG["enabled"]:
-        st.caption("✅ Email notifications enabled")
+        st.caption("✅ Email notifications enabled. You will receive an email if you are moved up from the waitlist.")
     else:
         st.caption("ℹ️ Email notifications disabled. Configure email settings to enable waitlist notifications.")
 
