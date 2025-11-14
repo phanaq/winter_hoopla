@@ -395,7 +395,7 @@ def main():
         st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
         if data["signups"]["mmp"]:
             for idx, pid in enumerate(data["signups"]["mmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display}")
         else:
             st.info("No MMP players")
@@ -404,14 +404,14 @@ def main():
         if data["waitlists"].get("mmp"):
             st.markdown("**MMP Waitlist:**")
             for idx, pid in enumerate(data["waitlists"]["mmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display}")
     
     with col2:
         st.subheader(f"WMP ({effective_wmp}/{MAX_PLAYERS_PER_TYPE})")
         if data["signups"]["wmp"]:
             for idx, pid in enumerate(data["signups"]["wmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display}")
         else:
             st.info("No WMP players")
@@ -420,7 +420,7 @@ def main():
         if data["waitlists"].get("wmp"):
             st.markdown("**WMP Waitlist:**")
             for idx, pid in enumerate(data["waitlists"]["wmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display}")
     
     with col3:
@@ -429,7 +429,7 @@ def main():
             # Determine which category XMP players count towards
             xmp_category = get_xmp_category(data)
             for idx, pid in enumerate(data["signups"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display} ({xmp_category})")
         else:
             st.info("No XMP players")
@@ -440,7 +440,7 @@ def main():
             # For waitlist, determine category based on current signups
             xmp_category = get_xmp_category(data)
             for idx, pid in enumerate(data["waitlists"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display} ({xmp_category})")
     
     st.markdown("---")
