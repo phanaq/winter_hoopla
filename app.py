@@ -12,6 +12,36 @@ MAX_PLAYERS_PER_TYPE = 10
 STATIC_DATE = "Tuesday November 18"
 STATIC_TIME = "7-8:30pm"
 
+# Supabase configuration
+SUPABASE_CONFIG = {
+    "url": os.getenv("SUPABASE_URL", ""),
+    "key": os.getenv("SUPABASE_KEY", ""),
+    "enabled": os.getenv("SUPABASE_ENABLED", "false").lower() == "true"
+}
+
+# Try to get Supabase config from Streamlit secrets
+try:
+    if "supabase" in st.secrets:
+        SUPABASE_CONFIG.update({
+            "url": st.secrets.supabase.get("url", SUPABASE_CONFIG["url"]),
+            "key": st.secrets.supabase.get("key", SUPABASE_CONFIG["key"]),
+            "enabled": st.secrets.supabase.get("enabled", SUPABASE_CONFIG["enabled"])
+        })
+except:
+    pass
+
+# Initialize Supabase client if configured
+supabase_client = None
+if SUPABASE_CONFIG["enabled"] and SUPABASE_CONFIG["url"] and SUPABASE_CONFIG["key"]:
+    try:
+        from supabase import create_client, Client
+        supabase_client: Optional[Client] = create_client(SUPABASE_CONFIG["url"], SUPABASE_CONFIG["key"])
+    except Exception as e:
+        st.warning(f"⚠️ Supabase connection failed: {str(e)}. Falling back to local file storage.")
+        supabase_client = None
+else:
+    supabase_client = None
+
 # Email configuration (set via environment variables or Streamlit secrets)
 EMAIL_CONFIG = {
     "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
@@ -36,62 +66,111 @@ except:
 
 
 def load_data() -> Dict:
-    """Load signup data from JSON file."""
+    """Load signup data from Supabase or JSON file."""
+    # Try Supabase first if enabled
+    if supabase_client:
+        try:
+            # Fetch data from Supabase
+            response = supabase_client.table("app_data").select("*").eq("id", "main").execute()
+            
+            if response.data and len(response.data) > 0:
+                data = response.data[0]["data"]
+            else:
+                # Initialize empty data structure
+                data = {
+                    "players": {},
+                    "signups": {"mmp": [], "wmp": [], "no_preference": []},
+                    "waitlists": {"mmp": [], "wmp": [], "no_preference": []}
+                }
+                # Save initial structure to Supabase
+                save_data(data)
+                return data
+            
+            # Ensure structure is correct (migrate if needed)
+            data = _normalize_data_structure(data)
+            return data
+        except Exception as e:
+            st.warning(f"⚠️ Failed to load from Supabase: {str(e)}. Falling back to local file.")
+    
+    # Fallback to JSON file
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
-        
-        # Migrate old week-based structure to flat structure
-        if "signups" in data and data["signups"] and isinstance(data["signups"], dict):
-            # Check if it's the old structure (has week keys)
-            # Old structure: {week: {mmp: [], wmp: [], no_preference: []}}
-            # New structure: {mmp: [], wmp: [], no_preference: []}
-            if data["signups"]:
-                first_key = next(iter(data["signups"]))
-                if first_key and isinstance(data["signups"][first_key], dict) and "mmp" in data["signups"][first_key]:
-                    # Old structure detected - migrate to new structure
-                    # For simplicity, we'll just reset to empty since data is reset each week
-                    data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-                elif "mmp" not in data["signups"]:
-                    # Ensure structure exists
-                    data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-            else:
-                # Empty dict, initialize new structure
-                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-        else:
-            data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-        
-        if "waitlists" in data and data["waitlists"] and isinstance(data["waitlists"], dict):
-            if data["waitlists"]:
-                first_key = next(iter(data["waitlists"]))
-                if first_key and isinstance(data["waitlists"][first_key], dict) and "mmp" in data["waitlists"][first_key]:
-                    # Old structure detected
-                    data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-                elif "mmp" not in data["waitlists"]:
-                    data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-            else:
-                # Empty dict, initialize new structure
-                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-        else:
-            data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-        
-        # Ensure all required keys exist
-        for key in ["mmp", "wmp", "no_preference"]:
-            if key not in data["signups"]:
-                data["signups"][key] = []
-            if key not in data["waitlists"]:
-                data["waitlists"][key] = []
-        
+        data = _normalize_data_structure(data)
         return data
+    
+    # Return empty structure
     return {
-        "players": {},  # {player_id: {name, email, type}}
-        "signups": {"mmp": [], "wmp": [], "no_preference": []},  # {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}
-        "waitlists": {"mmp": [], "wmp": [], "no_preference": []}  # {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}
+        "players": {},
+        "signups": {"mmp": [], "wmp": [], "no_preference": []},
+        "waitlists": {"mmp": [], "wmp": [], "no_preference": []}
     }
 
 
+def _normalize_data_structure(data: Dict) -> Dict:
+    """Normalize data structure to ensure it has the correct format."""
+    # Migrate old week-based structure to flat structure
+    if "signups" in data and data["signups"] and isinstance(data["signups"], dict):
+        # Check if it's the old structure (has week keys)
+        # Old structure: {week: {mmp: [], wmp: [], no_preference: []}}
+        # New structure: {mmp: [], wmp: [], no_preference: []}
+        if data["signups"]:
+            first_key = next(iter(data["signups"]))
+            if first_key and isinstance(data["signups"][first_key], dict) and "mmp" in data["signups"][first_key]:
+                # Old structure detected - migrate to new structure
+                # For simplicity, we'll just reset to empty since data is reset each week
+                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+            elif "mmp" not in data["signups"]:
+                # Ensure structure exists
+                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+        else:
+            # Empty dict, initialize new structure
+            data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+    else:
+        data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+    
+    if "waitlists" in data and data["waitlists"] and isinstance(data["waitlists"], dict):
+        if data["waitlists"]:
+            first_key = next(iter(data["waitlists"]))
+            if first_key and isinstance(data["waitlists"][first_key], dict) and "mmp" in data["waitlists"][first_key]:
+                # Old structure detected
+                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+            elif "mmp" not in data["waitlists"]:
+                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+        else:
+            # Empty dict, initialize new structure
+            data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+    else:
+        data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+    
+    # Ensure all required keys exist
+    if "players" not in data:
+        data["players"] = {}
+    
+    for key in ["mmp", "wmp", "no_preference"]:
+        if key not in data["signups"]:
+            data["signups"][key] = []
+        if key not in data["waitlists"]:
+            data["waitlists"][key] = []
+    
+    return data
+
+
 def save_data(data: Dict):
-    """Save signup data to JSON file."""
+    """Save signup data to Supabase or JSON file."""
+    # Try Supabase first if enabled
+    if supabase_client:
+        try:
+            # Upsert data to Supabase (updated_at will be set automatically by the database)
+            supabase_client.table("app_data").upsert({
+                "id": "main",
+                "data": data
+            }).execute()
+            return
+        except Exception as e:
+            st.warning(f"⚠️ Failed to save to Supabase: {str(e)}. Falling back to local file.")
+    
+    # Fallback to JSON file
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
