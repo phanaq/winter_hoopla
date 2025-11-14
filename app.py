@@ -263,6 +263,7 @@ def signup_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, O
         mmp_count = len(data["signups"]["mmp"])
         wmp_count = len(data["signups"]["wmp"])
         no_pref_count = len(data["signups"]["no_preference"])
+
         
         # Determine which category to count towards (before adding this player)
         if mmp_count < wmp_count:
@@ -380,11 +381,10 @@ def main():
     
     # Show signups - no authentication required
     st.subheader("Current Signups and Waitlist")
+    st.write("If there are fewer than 6 WMP signed up for a given week, I will take MMP off the waitlist and we will run a game with no prescribed ratio. If this occurs I will notify players that are being moved up from the waitlist around noon the day of.")
     
     # Calculate effective counts for display
     effective_mmp, effective_wmp = get_effective_counts(data)
-    mmp_count = len(data["signups"].get("mmp", []))
-    wmp_count = len(data["signups"].get("wmp", []))
     no_pref_count = len(data["signups"].get("no_preference", []))
 
     col1, col2, col3 = st.columns(3)
@@ -395,7 +395,7 @@ def main():
         st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
         if data["signups"]["mmp"]:
             for idx, pid in enumerate(data["signups"]["mmp"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display}")
         else:
             st.info("No MMP players")
@@ -404,14 +404,14 @@ def main():
         if data["waitlists"].get("mmp"):
             st.markdown("**MMP Waitlist:**")
             for idx, pid in enumerate(data["waitlists"]["mmp"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display}")
     
     with col2:
         st.subheader(f"WMP ({effective_wmp}/{MAX_PLAYERS_PER_TYPE})")
         if data["signups"]["wmp"]:
             for idx, pid in enumerate(data["signups"]["wmp"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display}")
         else:
             st.info("No WMP players")
@@ -420,7 +420,7 @@ def main():
         if data["waitlists"].get("wmp"):
             st.markdown("**WMP Waitlist:**")
             for idx, pid in enumerate(data["waitlists"]["wmp"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display}")
     
     with col3:
@@ -429,7 +429,7 @@ def main():
             # Determine which category XMP players count towards
             xmp_category = get_xmp_category(data)
             for idx, pid in enumerate(data["signups"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"{idx}. {player_name_display} ({xmp_category})")
         else:
             st.info("No XMP players")
@@ -440,7 +440,7 @@ def main():
             # For waitlist, determine category based on current signups
             xmp_category = get_xmp_category(data)
             for idx, pid in enumerate(data["waitlists"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid['player_id'], {}).get("name", pid)
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
                 st.write(f"  {idx}. {player_name_display} ({xmp_category})")
     
     st.markdown("---")
@@ -556,8 +556,9 @@ def main():
     
     # Footer with email configuration status
     st.markdown("---")
+    st.write("If you have any feedback or questions, please email Annie: winterhoopla@gmail.com")
     if EMAIL_CONFIG["enabled"]:
-        st.caption("✅ Email notifications enabled. You will receive an email if you are moved up from the waitlist.")
+        st.caption("Email notifications enabled. You will receive an email if you are moved up from the waitlist.")
     else:
         st.caption("ℹ️ Email notifications disabled. Configure email settings to enable waitlist notifications.")
 
