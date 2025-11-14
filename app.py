@@ -1,8 +1,7 @@
 import streamlit as st
 import json
 import os
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional, Tuple
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -10,6 +9,8 @@ from email.mime.multipart import MIMEMultipart
 # Configuration
 DATA_FILE = "signup_data.json"
 MAX_PLAYERS_PER_TYPE = 10
+STATIC_DATE = "Tuesday November 18"
+STATIC_TIME = "7-8:30pm"
 
 # Email configuration (set via environment variables or Streamlit secrets)
 EMAIL_CONFIG = {
@@ -39,18 +40,53 @@ def load_data() -> Dict:
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
-        # Ensure no_preference exists in all signups and waitlists for backward compatibility
-        for week in data.get("signups", {}):
-            if "no_preference" not in data["signups"][week]:
-                data["signups"][week]["no_preference"] = []
-        for week in data.get("waitlists", {}):
-            if "no_preference" not in data["waitlists"][week]:
-                data["waitlists"][week]["no_preference"] = []
+        
+        # Migrate old week-based structure to flat structure
+        if "signups" in data and data["signups"] and isinstance(data["signups"], dict):
+            # Check if it's the old structure (has week keys)
+            # Old structure: {week: {mmp: [], wmp: [], no_preference: []}}
+            # New structure: {mmp: [], wmp: [], no_preference: []}
+            if data["signups"]:
+                first_key = next(iter(data["signups"]))
+                if first_key and isinstance(data["signups"][first_key], dict) and "mmp" in data["signups"][first_key]:
+                    # Old structure detected - migrate to new structure
+                    # For simplicity, we'll just reset to empty since data is reset each week
+                    data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+                elif "mmp" not in data["signups"]:
+                    # Ensure structure exists
+                    data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+            else:
+                # Empty dict, initialize new structure
+                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+        else:
+            data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+        
+        if "waitlists" in data and data["waitlists"] and isinstance(data["waitlists"], dict):
+            if data["waitlists"]:
+                first_key = next(iter(data["waitlists"]))
+                if first_key and isinstance(data["waitlists"][first_key], dict) and "mmp" in data["waitlists"][first_key]:
+                    # Old structure detected
+                    data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+                elif "mmp" not in data["waitlists"]:
+                    data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+            else:
+                # Empty dict, initialize new structure
+                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+        else:
+            data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
+        
+        # Ensure all required keys exist
+        for key in ["mmp", "wmp", "no_preference"]:
+            if key not in data["signups"]:
+                data["signups"][key] = []
+            if key not in data["waitlists"]:
+                data["waitlists"][key] = []
+        
         return data
     return {
         "players": {},  # {player_id: {name, email, type}}
-        "signups": {},  # {week: {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}}
-        "waitlists": {}  # {week: {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}}
+        "signups": {"mmp": [], "wmp": [], "no_preference": []},  # {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}
+        "waitlists": {"mmp": [], "wmp": [], "no_preference": []}  # {mmp: [player_ids], wmp: [player_ids], no_preference: [player_ids]}
     }
 
 
@@ -60,33 +96,6 @@ def save_data(data: Dict):
         json.dump(data, f, indent=2)
 
 
-def get_week_key(date: datetime) -> str:
-    """Get a week key in YYYY-MM-DD format (Monday of the week)."""
-    # Get Monday of the week
-    days_since_monday = date.weekday()
-    monday = date - timedelta(days=days_since_monday)
-    return monday.strftime("%Y-%m-%d")
-
-
-def get_week_display(week_key: str) -> str:
-    """Format week key for display."""
-    date = datetime.strptime(week_key, "%Y-%m-%d")
-    end_date = date + timedelta(days=6)
-    return f"Week of {date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
-
-
-def get_available_weeks() -> List[str]:
-    """Get list of available weeks (current week + next 4 weeks)."""
-    today = datetime.now()
-    weeks = []
-    # Start from Monday of current week
-    days_since_monday = today.weekday()
-    current_monday = today - timedelta(days=days_since_monday)
-    
-    for i in range(5):  # Current week + 4 future weeks
-        week_date = current_monday + timedelta(weeks=i)
-        weeks.append(get_week_key(week_date))
-    return weeks
 
 
 def send_email(to_email: str, subject: str, body: str) -> bool:
@@ -112,16 +121,13 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
         return False
 
 
-def get_xmp_category(data: Dict, week: str) -> str:
+def get_xmp_category(data: Dict) -> str:
     """
-    Determine which category (MMP or WMP) XMP players count towards for a given week.
+    Determine which category (MMP or WMP) XMP players count towards.
     Returns "MMP" or "WMP"
     """
-    if week not in data["signups"]:
-        return "DOM this week"  # Default
-    
-    mmp_count = len(data["signups"][week].get("mmp", []))
-    wmp_count = len(data["signups"][week].get("wmp", []))
+    mmp_count = len(data["signups"].get("mmp", []))
+    wmp_count = len(data["signups"].get("wmp", []))
     
     if mmp_count < wmp_count:
         return "DOM this week"
@@ -132,18 +138,15 @@ def get_xmp_category(data: Dict, week: str) -> str:
         return "DOM this week"
 
 
-def get_effective_counts(data: Dict, week: str) -> Tuple[int, int]:
+def get_effective_counts(data: Dict) -> Tuple[int, int]:
     """
     Calculate effective counts for MMP and WMP, accounting for XMP players.
     XMP players count towards whichever category has fewer players.
     Returns (effective_mmp_count, effective_wmp_count)
     """
-    if week not in data["signups"]:
-        return (0, 0)
-    
-    mmp_count = len(data["signups"][week].get("mmp", []))
-    wmp_count = len(data["signups"][week].get("wmp", []))
-    no_pref_count = len(data["signups"][week].get("no_preference", []))
+    mmp_count = len(data["signups"].get("mmp", []))
+    wmp_count = len(data["signups"].get("wmp", []))
+    no_pref_count = len(data["signups"].get("no_preference", []))
     
     # Distribute no_preference players to the category with fewer players
     if mmp_count < wmp_count:
@@ -160,32 +163,27 @@ def get_effective_counts(data: Dict, week: str) -> Tuple[int, int]:
     return (effective_mmp, effective_wmp)
 
 
-def signup_player(data: Dict, player_id: str, week: str, player_type: str) -> Tuple[bool, Optional[str]]:
+def signup_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, Optional[str]]:
     """
-    Sign up a player for a week.
+    Sign up a player.
     Returns (success, message)
     """
-    if week not in data["signups"]:
-        data["signups"][week] = {"mmp": [], "wmp": [], "no_preference": []}
-    if week not in data["waitlists"]:
-        data["waitlists"][week] = {"mmp": [], "wmp": [], "no_preference": []}
-    
-    signups = data["signups"][week][player_type]
-    waitlist = data["waitlists"][week][player_type]
+    signups = data["signups"][player_type]
+    waitlist = data["waitlists"][player_type]
     
     # Check if already signed up
     if player_id in signups:
-        return False, "You are already signed up for this week!"
+        return False, "You are already signed up!"
     
     # Check if already on waitlist
     if player_id in waitlist:
-        return False, "You are already on the waitlist for this week!"
+        return False, "You are already on the waitlist!"
     
     # For XMP (no_preference) players, check against the category with fewer players
     if player_type == "no_preference":
-        mmp_count = len(data["signups"][week]["mmp"])
-        wmp_count = len(data["signups"][week]["wmp"])
-        no_pref_count = len(data["signups"][week]["no_preference"])
+        mmp_count = len(data["signups"]["mmp"])
+        wmp_count = len(data["signups"]["wmp"])
+        no_pref_count = len(data["signups"]["no_preference"])
         
         # Determine which category to count towards (before adding this player)
         if mmp_count < wmp_count:
@@ -194,60 +192,57 @@ def signup_player(data: Dict, player_id: str, week: str, player_type: str) -> Tu
             if mmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
                 signups.append(player_id)
                 save_data(data)
-                return True, f"Successfully signed up for {get_week_display(week)}!"
+                return True, "Successfully signed up!"
             else:
                 waitlist.append(player_id)
                 save_data(data)
                 position = len(waitlist)
-                return True, f"Added to waitlist (position {position}) for {get_week_display(week)}."
+                return True, f"Added to waitlist (position {position})."
         elif wmp_count < mmp_count:
             # Count towards WMP limit
             # Effective WMP count after adding would be: wmp_count + no_pref_count + 1
             if wmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
                 signups.append(player_id)
                 save_data(data)
-                return True, f"Successfully signed up for {get_week_display(week)}!"
+                return True, "Successfully signed up!"
             else:
                 waitlist.append(player_id)
                 save_data(data)
                 position = len(waitlist)
-                return True, f"Added to waitlist (position {position}) for {get_week_display(week)}."
+                return True, f"Added to waitlist (position {position})."
         else:
             # Equal counts, count towards MMP by default
             # Effective MMP count after adding would be: mmp_count + no_pref_count + 1
             if mmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
                 signups.append(player_id)
                 save_data(data)
-                return True, f"Successfully signed up for {get_week_display(week)}!"
+                return True, "Successfully signed up!"
             else:
                 waitlist.append(player_id)
                 save_data(data)
                 position = len(waitlist)
-                return True, f"Added to waitlist (position {position}) for {get_week_display(week)}."
+                return True, f"Added to waitlist (position {position})."
     else:
         # For MMP and WMP, use standard logic
         if len(signups) < MAX_PLAYERS_PER_TYPE:
             signups.append(player_id)
             save_data(data)
-            return True, f"Successfully signed up for {get_week_display(week)}!"
+            return True, "Successfully signed up!"
         else:
             # Add to waitlist
             waitlist.append(player_id)
             save_data(data)
             position = len(waitlist)
-            return True, f"Added to waitlist (position {position}) for {get_week_display(week)}."
+            return True, f"Added to waitlist (position {position})."
 
 
-def remove_player(data: Dict, player_id: str, week: str, player_type: str) -> Tuple[bool, Optional[str]]:
+def remove_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, Optional[str]]:
     """
     Remove a player from signup and promote from waitlist if needed.
     Returns (success, message)
     """
-    if week not in data["signups"] or week not in data["waitlists"]:
-        return False, "No signups found for this week."
-    
-    signups = data["signups"][week][player_type]
-    waitlist = data["waitlists"][week][player_type]
+    signups = data["signups"][player_type]
+    waitlist = data["waitlists"][player_type]
     
     # Check if player is signed up
     if player_id in signups:
@@ -263,11 +258,15 @@ def remove_player(data: Dict, player_id: str, week: str, player_type: str) -> Tu
                 promoted_player = data["players"][promoted_id]
                 email = promoted_player.get("email", "")
                 if email:
-                    subject = f"Winter Hoopla - You've been promoted from the waitlist for {get_week_display(week)}"
+                    subject = f"Winter Hoopla - You have a spot for {STATIC_DATE} {STATIC_TIME}"
                     body = f"Hi {promoted_player['name']},\n\n"
                     body += f"This is an automated email. You've been promoted from the waitlist and are now signed up "
-                    body += f"for indoor goaltimate at ComEd Rec Center for the week of {get_week_display(week)}. "
-                    body += f"If you can no longer attend, please remove your signup so that the next player on the waitlist can be promoted.\n\n"
+                    body += f"to attend indoor goaltimate at ComEd Rec Center.\n\n"
+                    body += f"Session Details:\n"
+                    body += f"Date/Time: {STATIC_DATE}, {STATIC_TIME}\n"
+                    body += f"Location: ComEd Rec Center\n\n"
+                    body += f"If you can no longer attend, please remove your signup so that the next player on the waitlist can be promoted.\n"
+                    body += f"You can manage your signup at: https://winter-hoopla.streamlit.app/\n\n"
                     body += "See you on the field!\n\n"
                     body += "- Annie"
                     send_email(email, subject, body)
@@ -284,105 +283,92 @@ def remove_player(data: Dict, player_id: str, week: str, player_type: str) -> Tu
         save_data(data)
         return True, "Removed from waitlist."
     else:
-        return False, "You are not signed up for this week."
+        return False, "You are not signed up."
 
 
 def main():
     st.set_page_config(page_title="Goaltimate Signup", page_icon="🥏", layout="wide")
     
     st.title("Winter Hoopla - Session 1 (Mixed)")
-    st.markdown("---")
     
     # Load data
     data = load_data()
     
-    # Get available weeks (used in multiple places)
-    weeks = get_available_weeks()
-    week_options = {get_week_display(week): week for week in weeks}
-    
-    # Single week selector for all sections
-    selected_week_display = st.selectbox(
-        "Select Week",
-        options=list(week_options.keys()),
-        key="selected_week"
-    )
-    selected_week = week_options[selected_week_display]
-    
-    # Show signups for all weeks - no authentication required
-    st.header("View Signups")
-    
-    if selected_week in data["signups"]:
-        # Calculate effective counts for display
-        effective_mmp, effective_wmp = get_effective_counts(data, selected_week)
-        mmp_count = len(data["signups"][selected_week].get("mmp", []))
-        wmp_count = len(data["signups"][selected_week].get("wmp", []))
-        no_pref_count = len(data["signups"][selected_week].get("no_preference", []))
-        
-        st.write("XMP (players with no gender matching preference) will count towards whichever category has fewer players for a given week.")
+    # Display static date and location
+    st.subheader(f"**{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
 
-        col1, col2, col3 = st.columns(3)
+    st.markdown("---")
+    
+    # Show signups - no authentication required
+    st.subheader("Current Signups and Waitlist")
+    
+    # Calculate effective counts for display
+    effective_mmp, effective_wmp = get_effective_counts(data)
+    mmp_count = len(data["signups"].get("mmp", []))
+    wmp_count = len(data["signups"].get("wmp", []))
+    no_pref_count = len(data["signups"].get("no_preference", []))
 
+    col1, col2, col3 = st.columns(3)
+    st.write("XMP (players with no gender matching preference) will count towards whichever category has fewer players.")
+    
+    
+    with col1:
+        st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
+        if data["signups"]["mmp"]:
+            for idx, pid in enumerate(data["signups"]["mmp"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"{idx}. {player_name_display}")
+        else:
+            st.info("No MMP players")
         
+        # Show waitlist
+        if data["waitlists"].get("mmp"):
+            st.markdown("**MMP Waitlist:**")
+            for idx, pid in enumerate(data["waitlists"]["mmp"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"  {idx}. {player_name_display}")
+    
+    with col2:
+        st.subheader(f"WMP ({effective_wmp}/{MAX_PLAYERS_PER_TYPE})")
+        if data["signups"]["wmp"]:
+            for idx, pid in enumerate(data["signups"]["wmp"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"{idx}. {player_name_display}")
+        else:
+            st.info("No WMP players")
         
-        with col1:
-            st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
-            if data["signups"][selected_week]["mmp"]:
-                for idx, pid in enumerate(data["signups"][selected_week]["mmp"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"{idx}. {player_name_display}")
-            else:
-                st.info("No MMP players")
-            
-            # Show waitlist
-            if selected_week in data["waitlists"] and data["waitlists"][selected_week].get("mmp"):
-                st.markdown("**MMP Waitlist:**")
-                for idx, pid in enumerate(data["waitlists"][selected_week]["mmp"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"  {idx}. {player_name_display}")
+        # Show waitlist
+        if data["waitlists"].get("wmp"):
+            st.markdown("**WMP Waitlist:**")
+            for idx, pid in enumerate(data["waitlists"]["wmp"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"  {idx}. {player_name_display}")
+    
+    with col3:
+        st.subheader(f"XMP ({no_pref_count})")
+        if data["signups"].get("no_preference"):
+            # Determine which category XMP players count towards
+            xmp_category = get_xmp_category(data)
+            for idx, pid in enumerate(data["signups"]["no_preference"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"{idx}. {player_name_display} ({xmp_category})")
+        else:
+            st.info("No XMP players")
         
-        with col2:
-            st.subheader(f"WMP ({effective_wmp}/{MAX_PLAYERS_PER_TYPE})")
-            if data["signups"][selected_week]["wmp"]:
-                for idx, pid in enumerate(data["signups"][selected_week]["wmp"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"{idx}. {player_name_display}")
-            else:
-                st.info("No WMP players")
-            
-            # Show waitlist
-            if selected_week in data["waitlists"] and data["waitlists"][selected_week].get("wmp"):
-                st.markdown("**WMP Waitlist:**")
-                for idx, pid in enumerate(data["waitlists"][selected_week]["wmp"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"  {idx}. {player_name_display}")
-        
-        with col3:
-            st.subheader(f"XMP ({no_pref_count})")
-            if data["signups"][selected_week].get("no_preference"):
-                # Determine which category XMP players count towards
-                xmp_category = get_xmp_category(data, selected_week)
-                for idx, pid in enumerate(data["signups"][selected_week]["no_preference"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"{idx}. {player_name_display} ({xmp_category})")
-            else:
-                st.info("No XMP players")
-            
-            # Show waitlist
-            if selected_week in data["waitlists"] and data["waitlists"][selected_week].get("no_preference"):
-                st.markdown("**XMP Waitlist:**")
-                # For waitlist, determine category based on current signups
-                xmp_category = get_xmp_category(data, selected_week)
-                for idx, pid in enumerate(data["waitlists"][selected_week]["no_preference"], 1):
-                    player_name_display = data["players"].get(pid, {}).get("name", pid)
-                    st.write(f"  {idx}. {player_name_display} ({xmp_category})")
-    else:
-        st.info("No signups for this week yet")
+        # Show waitlist
+        if data["waitlists"].get("no_preference"):
+            st.markdown("**XMP Waitlist:**")
+            # For waitlist, determine category based on current signups
+            xmp_category = get_xmp_category(data)
+            for idx, pid in enumerate(data["waitlists"]["no_preference"], 1):
+                player_name_display = data["players"].get(pid, {}).get("name", pid)
+                st.write(f"  {idx}. {player_name_display} ({xmp_category})")
     
     st.markdown("---")
     
     # Player identification section - required for signup/removal
-    st.header("Sign Up")
-    st.caption("Enter your name and email to sign up or remove your signup. Email is required so that we can notify people who are moved up from the waitlist.")
+    st.subheader("Sign Up")
+    st.caption("Enter your name and email to sign up or remove your signup. Email is required so that we can automatically notify people who are moved up from the waitlist.")
     
     col_name, col_email = st.columns(2)
     
@@ -422,31 +408,29 @@ def main():
     
     if can_interact:
         
-        
-        # Check if player is signed up or on waitlist for the selected week
+        # Check if player is signed up or on waitlist
         is_signed_up = False
         is_on_waitlist = False
         player_type_current = None
         
-        if selected_week in data["signups"]:
-            if player_id in data["signups"][selected_week].get("mmp", []):
-                is_signed_up = True
-                player_type_current = "mmp"
-            elif player_id in data["signups"][selected_week].get("wmp", []):
-                is_signed_up = True
-                player_type_current = "wmp"
-            elif player_id in data["signups"][selected_week].get("no_preference", []):
-                is_signed_up = True
-                player_type_current = "no_preference"
+        if player_id in data["signups"].get("mmp", []):
+            is_signed_up = True
+            player_type_current = "mmp"
+        elif player_id in data["signups"].get("wmp", []):
+            is_signed_up = True
+            player_type_current = "wmp"
+        elif player_id in data["signups"].get("no_preference", []):
+            is_signed_up = True
+            player_type_current = "no_preference"
         
-        if not is_signed_up and selected_week in data["waitlists"]:
-            if player_id in data["waitlists"][selected_week].get("mmp", []):
+        if not is_signed_up:
+            if player_id in data["waitlists"].get("mmp", []):
                 is_on_waitlist = True
                 player_type_current = "mmp"
-            elif player_id in data["waitlists"][selected_week].get("wmp", []):
+            elif player_id in data["waitlists"].get("wmp", []):
                 is_on_waitlist = True
                 player_type_current = "wmp"
-            elif player_id in data["waitlists"][selected_week].get("no_preference", []):
+            elif player_id in data["waitlists"].get("no_preference", []):
                 is_on_waitlist = True
                 player_type_current = "no_preference"
         
@@ -456,13 +440,13 @@ def main():
             st.subheader("Remove Signup")
             type_display = "XMP" if player_type_current == "no_preference" else player_type_current.upper()
             if is_signed_up:
-                st.warning(f"✅ You are signed up as **{type_display}** for {selected_week_display}")
+                st.warning(f"✅ You are signed up as **{type_display}**")
             elif is_on_waitlist:
-                position = data["waitlists"][selected_week][player_type_current].index(player_id) + 1
-                st.info(f"⏳ You are on the waitlist (position {position}) as **{type_display}** for {selected_week_display}")
+                position = data["waitlists"][player_type_current].index(player_id) + 1
+                st.info(f"⏳ You are on the waitlist (position {position}) as **{type_display}**")
             
             if st.button("Remove Signup", type="primary", key="remove_btn"):
-                success, message = remove_player(data, player_id, selected_week, player_type_current)
+                success, message = remove_player(data, player_id, player_type_current)
                 if success:
                     st.success(message)
                 else:
@@ -470,7 +454,7 @@ def main():
                 st.rerun()
         else:
             # Show Sign Up option
-            st.info(f"You are not signed up for {selected_week_display}")
+            st.info("You are not signed up")
             
             player_type = st.radio(
                 "Gender Match",
@@ -484,7 +468,7 @@ def main():
                 player_type_internal = "no_preference" if player_type == "XMP" else player_type.lower()
                 
                 if st.button("Sign Up", type="primary", key="signup_btn"):
-                    success, message = signup_player(data, player_id, selected_week, player_type_internal)
+                    success, message = signup_player(data, player_id, player_type_internal)
                     if success:
                         st.success(message)
                     else:
