@@ -484,7 +484,7 @@ def main():
         player_name = st.text_input("Full Name *", key="player_name", placeholder="Enter your name")
     
     with col_email:
-        player_email = st.text_input("Your Email *", key="player_email", placeholder="your.email@example.com")
+        player_email = st.text_input("Email Address *", key="player_email", placeholder="your.email@example.com")
     
     # Validate that both name and email are provided
     player_id = None
