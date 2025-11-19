@@ -414,10 +414,11 @@ def main():
     effective_mmp, effective_wmp = get_effective_counts(data)
     no_pref_count = len(data["signups"].get("no_preference", []))
 
+    st.write(":blue[Annie, Graham, and Tuc are attending this week but we are not including ourselves in the counts below.]")
     col1, col2, col3 = st.columns(3)
     st.write("XMP (players with no gender matching preference) will count towards whichever category has fewer players.")
     
-    
+
     with col1:
         st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
         if data["signups"]["mmp"]:
