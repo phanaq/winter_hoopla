@@ -6,11 +6,17 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+# VARIABLES
+WEEK_NUMBER = 2
+STATIC_TIME = "7-8:30pm"
+
 # Configuration
 DATA_FILE = "signup_data.json"
 MAX_PLAYERS_PER_TYPE = 10
-STATIC_DATE = "Tuesday November 18"
-STATIC_TIME = "7-8:30pm"
+DATES = ["Tuesday November 18", "Tuesday November 25", "Tuesday December 2", "Tuesday December 9", "Tuesday December 16", "Tuesday December 23"]
+STATIC_WEEK = f"week_{WEEK_NUMBER}"
+STATIC_DATE = DATES[1]
+TABLE_NAME = "app_data"
 
 # Supabase configuration
 SUPABASE_CONFIG = {
@@ -71,10 +77,15 @@ def load_data() -> Dict:
     if supabase_client:
         try:
             # Fetch data from Supabase
-            response = supabase_client.table("app_data").select("*").eq("id", "main").execute()
+            response = supabase_client.table(TABLE_NAME).select("*").eq("id", "main").execute()
             
             if response.data and len(response.data) > 0:
-                data = response.data[0]["data"]
+                existing_data = response.data[0]["data"]
+            else:
+                existing_data = {}
+            
+            if STATIC_WEEK in existing_data:
+                data = existing_data[STATIC_WEEK]
             else:
                 # Initialize empty data structure
                 data = {
@@ -161,10 +172,20 @@ def save_data(data: Dict):
     # Try Supabase first if enabled
     if supabase_client:
         try:
-            # Upsert data to Supabase (updated_at will be set automatically by the database)
-            supabase_client.table("app_data").upsert({
+            # Load existing data from Supabase
+            response = supabase_client.table(TABLE_NAME).select("*").eq("id", "main").execute()
+            if response.data and len(response.data) > 0:
+                existing_data = response.data[0]["data"]
+            else:
+                existing_data = {}
+
+            # Update only the current week
+            existing_data[STATIC_WEEK] = data
+
+            # Upsert the updated data back to Supabase
+            supabase_client.table(TABLE_NAME).upsert({
                 "id": "main",
-                "data": data
+                "data": existing_data
             }).execute()
             return
         except Exception as e:
@@ -375,12 +396,18 @@ def main():
     data = load_data()
     
     # Display static date and location
-    st.subheader(f"**{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
+    st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
+    st.write("- 7-7:15pm: Drills or small-sided reps")
+    st.write("- 7:15-8:29pm: Scrimmage")
+    st.write("- 8:29-8:30pm: Clean up :)")
+    st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
 
     st.markdown("---")
     
     # Show signups - no authentication required
     st.subheader("Current Signups and Waitlist")
+    st.write(":red[Please do not sign up unless you plan to attend. If you need to cancel, please remove your signup ASAP to allow others to join.]")
+    st.write("**:red[Please do not wait until Tuesday to cancel your signup.]**")
     st.write("If there are fewer than 6 WMP signed up for a given week, I will take MMP off the waitlist and we will run a game with no prescribed ratio. If this occurs I will notify players that are being moved up from the waitlist around noon the day of.")
     
     # Calculate effective counts for display
@@ -446,8 +473,9 @@ def main():
     st.markdown("---")
     
     # Player identification section - required for signup/removal
-    st.subheader("Sign Up")
-    st.caption("Enter your name and email to sign up or remove your signup. Email is required so that we can automatically notify people who are moved up from the waitlist.")
+    st.subheader("Sign Up or Manage Sign Up / Waitlist")
+    st.write("* **:blue[Sign Up]**: enter your name and email. Email is required so that we can automatically notify people who are moved up from the waitlist.")
+    st.write("* **:red[Remove Your Signup or Waitlist Entry]:** To remove your signup or waitlist entry, enter the same name and email you used to sign up. You will see an option to remove yourself.")
     
     col_name, col_email = st.columns(2)
     
