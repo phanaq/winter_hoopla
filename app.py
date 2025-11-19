@@ -407,7 +407,7 @@ def main():
     # Show signups - no authentication required
     st.subheader("Current Signups and Waitlist")
     st.write(":red[Please do not sign up unless you plan to attend. If you need to cancel, please remove your signup ASAP to allow others to join.]")
-    st.write("**:red[Please do not wait until Tuesday to cancel your signup.]**")
+    st.write("**:red[Please do not wait until Tuesday to cancel your signup if possible.]**")
     st.write("If there are fewer than 6 WMP signed up for a given week, I will take MMP off the waitlist and we will run a game with no prescribed ratio. If this occurs I will notify players that are being moved up from the waitlist around noon the day of.")
     
     # Calculate effective counts for display
