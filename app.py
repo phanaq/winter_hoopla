@@ -481,7 +481,7 @@ def main():
     col_name, col_email = st.columns(2)
     
     with col_name:
-        player_name = st.text_input("Your Name *", key="player_name", placeholder="Enter your name")
+        player_name = st.text_input("Full Name *", key="player_name", placeholder="Enter your name")
     
     with col_email:
         player_email = st.text_input("Your Email *", key="player_email", placeholder="your.email@example.com")
