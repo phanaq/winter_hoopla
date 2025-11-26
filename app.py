@@ -7,15 +7,15 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # VARIABLES
-WEEK_NUMBER = 2
-STATIC_TIME = "7-8:30pm"
+WEEK_NUMBER = 3
+STATIC_TIME = "8:45-10:15pm"
 
 # Configuration
 DATA_FILE = "signup_data.json"
 MAX_PLAYERS_PER_TYPE = 10
 DATES = ["Tuesday November 18", "Tuesday November 25", "Tuesday December 2", "Tuesday December 9", "Tuesday December 16", "Tuesday December 23"]
 STATIC_WEEK = f"week_{WEEK_NUMBER}"
-STATIC_DATE = DATES[1]
+STATIC_DATE = DATES[WEEK_NUMBER - 1]
 TABLE_NAME = "app_data"
 
 # Supabase configuration
@@ -388,7 +388,7 @@ def remove_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, O
 
 
 def main():
-    st.set_page_config(page_title="Goaltimate Signup", page_icon="🥏", layout="wide")
+    st.set_page_config(page_title="Mixed Winter Hoopla", layout="wide")
     
     st.title("Winter Hoopla - Session 1 (Mixed)")
     
@@ -397,9 +397,9 @@ def main():
     
     # Display static date and location
     st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
-    st.write("- 7-7:15pm: Drills or small-sided reps")
-    st.write("- 7:15-8:29pm: Scrimmage")
-    st.write("- 8:29-8:30pm: Clean up :)")
+    st.write("- 8:45 - 9:00pm: Drills or small-sided reps")
+    st.write("- 9:00 - 10:14pm: Scrimmage")
+    st.write("- 10:14 - 10:15pm: Clean up :)")
     st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
 
     st.markdown("---")
@@ -407,14 +407,14 @@ def main():
     # Show signups - no authentication required
     st.subheader("Current Signups and Waitlist")
     st.write(":red[Please do not sign up unless you plan to attend. If you need to cancel, please remove your signup ASAP to allow others to join.]")
-    st.write("**:red[Please do not wait until Tuesday to cancel your signup if possible.]**")
+    st.write("**:red[If possible, please do not wait until Tuesday to cancel your signup. Thank you!]**")
     st.write("If there are fewer than 6 WMP signed up for a given week, I will take MMP off the waitlist and we will run a game with no prescribed ratio. If this occurs I will notify players that are being moved up from the waitlist around noon the day of.")
     
     # Calculate effective counts for display
     effective_mmp, effective_wmp = get_effective_counts(data)
     no_pref_count = len(data["signups"].get("no_preference", []))
 
-    st.write(":blue[Annie, Graham, and Tuc are attending this week but we are not including ourselves in the counts below.]")
+    st.write(":blue[Annie, Graham, and Tuc are attending but we are not included in the counts below.]")
     col1, col2, col3 = st.columns(3)
     st.write("XMP (players with no gender matching preference) will count towards whichever category has fewer players.")
     
@@ -562,7 +562,7 @@ def main():
                 st.rerun()
         else:
             # Show Sign Up option
-            st.info("You are not signed up")
+            st.info("You are not signed up for this week")
             
             player_type = st.radio(
                 "Gender Match",
