@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # VARIABLES
-WEEK_NUMBER = 3
+WEEK_NUMBER = 4
 STATIC_TIME = "8:45-10:15pm"
 
 # Configuration
@@ -398,8 +398,7 @@ def main():
     # Display static date and location
     st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
     st.write("- 8:45 - 9:00pm: Drills or small-sided reps")
-    st.write("- 9:00 - 10:14pm: Scrimmage")
-    st.write("- 10:14 - 10:15pm: Clean up :)")
+    st.write("- 9:00 - 10:15pm: Scrimmage")
     st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
 
     st.markdown("---")
