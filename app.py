@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 # VARIABLES
-WEEK_NUMBER = 4
+WEEK_NUMBER = 5
 STATIC_TIME = "8:45-10:30pm"
 
 # Configuration
