@@ -1,4 +1,5 @@
 import streamlit as st
+import requests
 import json
 import os
 from typing import Dict, Optional, Tuple
@@ -6,8 +7,9 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+
 # VARIABLES
-WEEK_NUMBER = 5
+WEEK_NUMBER = 4
 STATIC_TIME = "8:45-10:30pm"
 
 # Configuration
@@ -24,6 +26,7 @@ SUPABASE_CONFIG = {
     "key": os.getenv("SUPABASE_KEY", ""),
     "enabled": os.getenv("SUPABASE_ENABLED", "false").lower() == "true"
 }
+
 
 # Try to get Supabase config from Streamlit secrets
 try:
@@ -387,20 +390,35 @@ def remove_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, O
         return False, "You are not signed up."
 
 
+
+
 def main():
-    st.set_page_config(page_title="Mixed Winter Hoopla", layout="wide")
-    
-    st.title("Winter Hoopla - Session 1 (Mixed)")
-    
     # Load data
     data = load_data()
-    
-    # Display static date and location
-    st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
-    st.write("- 8:45 - 9:00pm: Drills or small-sided reps")
-    st.write("- 9:00 - 10:30pm: Scrimmage")
-    st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
-    st.write("$16 / night. [Pay @aphan on Venmo.](%https://venmo.com/u/aphan) Please include date of play.")
+
+    favicon_fid = "1hpdyNpeAp5AXoyf4svHIog7X0i8h_FvX"
+    favicon_url = f"https://drive.google.com/uc?export=view&id={favicon_fid}"
+    favicon = requests.get(favicon_url).content
+    st.set_page_config(
+        page_title="Mixed Winter Hoopla",
+        page_icon=favicon,
+        layout="wide"
+    )
+
+    logo_fid = "1hSXQo-9SBkX62tROSl9d_CzjHY3L6zWb"
+    logo_url = f"https://drive.google.com/uc?export=view&id={logo_fid}"
+    logo = requests.get(logo_url).content
+
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        st.image(logo)
+    with col2:
+        st.title("Session 1 (Mixed)")
+        st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
+        st.write("- 8:45 - 9:00pm: Drills or small-sided reps")
+        st.write("- 9:00 - 10:30pm: Scrimmage")
+        st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
+        st.write("$16 / night. [Pay @aphan on Venmo.](%https://venmo.com/u/aphan) Please include date of play.")
 
     st.markdown("---")
     
