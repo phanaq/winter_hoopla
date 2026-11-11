@@ -1,612 +1,551 @@
-import streamlit as st
-import requests
-import json
 import os
-from typing import Dict, Optional, Tuple
 import smtplib
+from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+from typing import Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
-# VARIABLES
-WEEK_NUMBER = 6
-STATIC_TIME = "8:45-10:30pm"
+import streamlit as st
 
-# Configuration
-DATA_FILE = "signup_data.json"
-MAX_PLAYERS_PER_TYPE = 10
-DATES = ["Tuesday November 18", "Tuesday November 25", "Tuesday December 2", "Tuesday December 9", "Tuesday December 16", "Tuesday December 23"]
-STATIC_WEEK = f"week_{WEEK_NUMBER}"
-STATIC_DATE = DATES[WEEK_NUMBER - 1]
-TABLE_NAME = "app_data"
+# ---------------------------------------------------------------------------
+# Season settings — edit these each year
+# ---------------------------------------------------------------------------
+TZ = ZoneInfo("America/Chicago")
+SEASON_TITLE = "Winter Hoopla - Session 1 (Mixed)"
+LOCATION = "ComEd Rec Center Indoor Turf"
+FIRST_SESSION = date(2026, 11, 16)  # Mondays
+NUM_SESSIONS = 7
+START_TIME = time(20, 15)
+END_TIME = time(22, 15)
+TIME_LABEL = "8:15 - 10:15pm"
+PRICE = "$20"
+MAX_PLAYERS_PER_SIDE = 10  # 10 MMP + 10 WMP
 
-# Supabase configuration
-SUPABASE_CONFIG = {
-    "url": os.getenv("SUPABASE_URL", ""),
-    "key": os.getenv("SUPABASE_KEY", ""),
-    "enabled": os.getenv("SUPABASE_ENABLED", "false").lower() == "true"
+# Signups open on the Friday before each Monday session at this time.
+SIGNUP_OPEN_DAYS_BEFORE = 3
+SIGNUP_OPEN_TIME = time(17, 0)
+
+VENMO_HANDLE = "aphan"
+ZELLE_CONTACT = "512-785-7660"  # Zelle option is hidden while blank
+CONTACT_EMAIL = "winterhoopla@gmail.com"
+APP_URL = "https://winter-hoopla.streamlit.app/"
+ORGANIZER_NOTE = ""  # e.g. "Annie and friends are attending but not included in the counts below."
+
+# Designer assets (hosted on Google Drive)
+FAVICON_DRIVE_ID = "1hpdyNpeAp5AXoyf4svHIog7X0i8h_FvX"
+LOGO_DRIVE_ID = "1hSXQo-9SBkX62tROSl9d_CzjHY3L6zWb"
+
+TABLE = "signups"
+GENDER_LABELS = {"mmp": "MMP", "wmp": "WMP"}
+PAYMENT_LABELS = {
+    "venmo": f"I've paid on Venmo (@{VENMO_HANDLE})",
+    "zelle": f"I've paid on Zelle ({ZELLE_CONTACT})",
+    "in_person": f"I'll pay in person at the field",
 }
 
+SESSIONS = [FIRST_SESSION + timedelta(weeks=i) for i in range(NUM_SESSIONS)]
 
-# Try to get Supabase config from Streamlit secrets
-try:
-    if "supabase" in st.secrets:
-        SUPABASE_CONFIG.update({
-            "url": st.secrets.supabase.get("url", SUPABASE_CONFIG["url"]),
-            "key": st.secrets.supabase.get("key", SUPABASE_CONFIG["key"]),
-            "enabled": st.secrets.supabase.get("enabled", SUPABASE_CONFIG["enabled"])
-        })
-except:
-    pass
 
-# Initialize Supabase client if configured
-supabase_client = None
-if SUPABASE_CONFIG["enabled"] and SUPABASE_CONFIG["url"] and SUPABASE_CONFIG["key"]:
+# ---------------------------------------------------------------------------
+# Config / clients
+# ---------------------------------------------------------------------------
+def _secret(section: str, key: str, env: str, default=""):
     try:
-        from supabase import create_client, Client
-        supabase_client: Optional[Client] = create_client(SUPABASE_CONFIG["url"], SUPABASE_CONFIG["key"])
-    except Exception as e:
-        st.warning(f"⚠️ Supabase connection failed: {str(e)}. Falling back to local file storage.")
-        supabase_client = None
-else:
-    supabase_client = None
+        if section in st.secrets and key in st.secrets[section]:
+            return st.secrets[section][key]
+    except Exception:
+        pass
+    return os.getenv(env, default)
 
-# Email configuration (set via environment variables or Streamlit secrets)
+
 EMAIL_CONFIG = {
-    "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
-    "smtp_port": int(os.getenv("SMTP_PORT", "587")),
-    "sender_email": os.getenv("SENDER_EMAIL", ""),
-    "sender_password": os.getenv("SENDER_PASSWORD", ""),
-    "enabled": os.getenv("EMAIL_ENABLED", "false").lower() == "true"
+    "smtp_server": _secret("email", "smtp_server", "SMTP_SERVER", "smtp.gmail.com"),
+    "smtp_port": int(_secret("email", "smtp_port", "SMTP_PORT", 587)),
+    "sender_email": _secret("email", "sender_email", "SENDER_EMAIL"),
+    "sender_password": _secret("email", "sender_password", "SENDER_PASSWORD"),
+    "enabled": str(_secret("email", "enabled", "EMAIL_ENABLED", "false")).lower() == "true",
 }
 
-# Try to get email config from Streamlit secrets
-try:
-    if "email" in st.secrets:
-        EMAIL_CONFIG.update({
-            "smtp_server": st.secrets.email.get("smtp_server", EMAIL_CONFIG["smtp_server"]),
-            "smtp_port": st.secrets.email.get("smtp_port", EMAIL_CONFIG["smtp_port"]),
-            "sender_email": st.secrets.email.get("sender_email", EMAIL_CONFIG["sender_email"]),
-            "sender_password": st.secrets.email.get("sender_password", EMAIL_CONFIG["sender_password"]),
-            "enabled": st.secrets.email.get("enabled", EMAIL_CONFIG["enabled"])
-        })
-except:
-    pass
+
+@st.cache_resource
+def get_db():
+    from supabase import create_client
+
+    url = _secret("supabase", "url", "SUPABASE_URL")
+    key = _secret("supabase", "key", "SUPABASE_KEY")
+    if not url or not key:
+        st.error("Supabase is not configured. Add [supabase] url and key to .streamlit/secrets.toml.")
+        st.stop()
+    return create_client(url, key)
 
 
-def load_data() -> Dict:
-    """Load signup data from Supabase or JSON file."""
-    # Try Supabase first if enabled
-    if supabase_client:
-        try:
-            # Fetch data from Supabase
-            response = supabase_client.table(TABLE_NAME).select("*").eq("id", "main").execute()
-            
-            if response.data and len(response.data) > 0:
-                existing_data = response.data[0]["data"]
-            else:
-                existing_data = {}
-            
-            if STATIC_WEEK in existing_data:
-                data = existing_data[STATIC_WEEK]
-            else:
-                # Initialize empty data structure
-                data = {
-                    "players": {},
-                    "signups": {"mmp": [], "wmp": [], "no_preference": []},
-                    "waitlists": {"mmp": [], "wmp": [], "no_preference": []}
-                }
-                # Save initial structure to Supabase
-                save_data(data)
-                return data
-            
-            # Ensure structure is correct (migrate if needed)
-            data = _normalize_data_structure(data)
-            return data
-        except Exception as e:
-            st.warning(f"⚠️ Failed to load from Supabase: {str(e)}. Falling back to local file.")
-    
-    # Fallback to JSON file
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-        data = _normalize_data_structure(data)
-        return data
-    
-    # Return empty structure
-    return {
-        "players": {},
-        "signups": {"mmp": [], "wmp": [], "no_preference": []},
-        "waitlists": {"mmp": [], "wmp": [], "no_preference": []}
-    }
+@st.cache_data(ttl=24 * 3600, show_spinner=False)
+def drive_image(file_id: str) -> Optional[bytes]:
+    import requests
+
+    try:
+        res = requests.get(f"https://drive.google.com/uc?export=view&id={file_id}", timeout=10)
+        res.raise_for_status()
+        return res.content
+    except Exception:
+        return None
 
 
-def _normalize_data_structure(data: Dict) -> Dict:
-    """Normalize data structure to ensure it has the correct format."""
-    # Migrate old week-based structure to flat structure
-    if "signups" in data and data["signups"] and isinstance(data["signups"], dict):
-        # Check if it's the old structure (has week keys)
-        # Old structure: {week: {mmp: [], wmp: [], no_preference: []}}
-        # New structure: {mmp: [], wmp: [], no_preference: []}
-        if data["signups"]:
-            first_key = next(iter(data["signups"]))
-            if first_key and isinstance(data["signups"][first_key], dict) and "mmp" in data["signups"][first_key]:
-                # Old structure detected - migrate to new structure
-                # For simplicity, we'll just reset to empty since data is reset each week
-                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-            elif "mmp" not in data["signups"]:
-                # Ensure structure exists
-                data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
+def now() -> datetime:
+    # HOOPLA_NOW="2026-11-13 17:05" lets you preview the app at another time locally.
+    override = os.getenv("HOOPLA_NOW")
+    if override:
+        return datetime.fromisoformat(override).replace(tzinfo=TZ)
+    return datetime.now(TZ)
+
+
+# ---------------------------------------------------------------------------
+# Schedule
+# ---------------------------------------------------------------------------
+def signup_opens_at(session: date) -> datetime:
+    return datetime.combine(session - timedelta(days=SIGNUP_OPEN_DAYS_BEFORE), SIGNUP_OPEN_TIME, TZ)
+
+
+def session_ends_at(session: date) -> datetime:
+    return datetime.combine(session, END_TIME, TZ)
+
+
+def current_session(at: datetime) -> Optional[date]:
+    """The next session that hasn't finished yet, or None when the season is over."""
+    for s in SESSIONS:
+        if at < session_ends_at(s):
+            return s
+    return None
+
+
+def fmt_day(d: date) -> str:
+    return d.strftime("%A, %B ") + str(d.day)
+
+
+def fmt_dt(dt: datetime) -> str:
+    return dt.strftime("%A, %B ") + str(dt.day) + dt.strftime(" at %-I:%M%p").lower()
+
+
+# ---------------------------------------------------------------------------
+# Roster logic
+# ---------------------------------------------------------------------------
+@dataclass
+class Spot:
+    row: Dict
+    side: Optional[str]  # "mmp" / "wmp" for rostered players, None for waitlisted
+
+
+def build_roster(rows: List[Dict]) -> Tuple[List[Spot], List[Spot]]:
+    """Fill the roster in signup order. MMP and WMP each get MAX_PLAYERS_PER_SIDE spots."""
+    counts = {"mmp": 0, "wmp": 0}
+    roster, waitlist = [], []
+    for row in sorted(rows, key=lambda r: r["id"]):  # ids increase in signup order
+        side = row["gender_match"]
+        if side not in counts:
+            continue
+        if counts[side] < MAX_PLAYERS_PER_SIDE:
+            counts[side] += 1
+            roster.append(Spot(row, side))
         else:
-            # Empty dict, initialize new structure
-            data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-    else:
-        data["signups"] = {"mmp": [], "wmp": [], "no_preference": []}
-    
-    if "waitlists" in data and data["waitlists"] and isinstance(data["waitlists"], dict):
-        if data["waitlists"]:
-            first_key = next(iter(data["waitlists"]))
-            if first_key and isinstance(data["waitlists"][first_key], dict) and "mmp" in data["waitlists"][first_key]:
-                # Old structure detected
-                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-            elif "mmp" not in data["waitlists"]:
-                data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-        else:
-            # Empty dict, initialize new structure
-            data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-    else:
-        data["waitlists"] = {"mmp": [], "wmp": [], "no_preference": []}
-    
-    # Ensure all required keys exist
-    if "players" not in data:
-        data["players"] = {}
-    
-    for key in ["mmp", "wmp", "no_preference"]:
-        if key not in data["signups"]:
-            data["signups"][key] = []
-        if key not in data["waitlists"]:
-            data["waitlists"][key] = []
-    
-    return data
+            waitlist.append(Spot(row, None))
+    return roster, waitlist
 
 
-def save_data(data: Dict):
-    """Save signup data to Supabase or JSON file."""
-    # Try Supabase first if enabled
-    if supabase_client:
-        try:
-            # Load existing data from Supabase
-            response = supabase_client.table(TABLE_NAME).select("*").eq("id", "main").execute()
-            if response.data and len(response.data) > 0:
-                existing_data = response.data[0]["data"]
-            else:
-                existing_data = {}
-
-            # Update only the current week
-            existing_data[STATIC_WEEK] = data
-
-            # Upsert the updated data back to Supabase
-            supabase_client.table(TABLE_NAME).upsert({
-                "id": "main",
-                "data": existing_data
-            }).execute()
-            return
-        except Exception as e:
-            st.warning(f"⚠️ Failed to save to Supabase: {str(e)}. Falling back to local file.")
-    
-    # Fallback to JSON file
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+def side_waitlist(waitlist: List[Spot], gender_match: str) -> List[Spot]:
+    return [s for s in waitlist if s.row["gender_match"] == gender_match]
 
 
+def waitlist_position(waitlist: List[Spot], row: Dict) -> int:
+    """1-based position among waitlisted players of the same gender match."""
+    same_side = side_waitlist(waitlist, row["gender_match"])
+    return next(i for i, s in enumerate(same_side, 1) if s.row["id"] == row["id"])
 
 
-def send_email(to_email: str, subject: str, body: str) -> bool:
-    """Send an email notification."""
+def load_rows(session: date) -> List[Dict]:
+    res = (
+        get_db()
+        .table(TABLE)
+        .select("id,name,email,gender_match,payment_method,created_at")
+        .eq("session_date", session.isoformat())
+        .is_("cancelled_at", "null")
+        .execute()
+    )
+    return res.data or []
+
+
+def find_active(rows: List[Dict], email: str) -> Optional[Dict]:
+    email = email.strip().lower()
+    return next((r for r in rows if r["email"].lower() == email), None)
+
+
+# ---------------------------------------------------------------------------
+# Email
+# ---------------------------------------------------------------------------
+def send_email(to_email: str, subject: str, body: str, cc: Optional[str] = None) -> bool:
     if not EMAIL_CONFIG["enabled"] or not EMAIL_CONFIG["sender_email"]:
         return False
-    
     try:
-        msg = MIMEMultipart()
+        msg = MIMEText(body, "plain")
         msg["From"] = EMAIL_CONFIG["sender_email"]
         msg["To"] = to_email
+        if cc:
+            msg["Cc"] = cc
         msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-        
-        server = smtplib.SMTP(EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"])
-        server.starttls()
-        server.login(EMAIL_CONFIG["sender_email"], EMAIL_CONFIG["sender_password"])
-        server.send_message(msg)
-        server.quit()
+        with smtplib.SMTP(EMAIL_CONFIG["smtp_server"], EMAIL_CONFIG["smtp_port"]) as server:
+            server.starttls()
+            server.login(EMAIL_CONFIG["sender_email"], EMAIL_CONFIG["sender_password"])
+            server.send_message(msg)
         return True
     except Exception as e:
-        st.error(f"Failed to send email: {str(e)}")
+        st.warning(f"Couldn't send email to {to_email}: {e}")
         return False
 
 
-def get_xmp_category(data: Dict) -> str:
-    """
-    Determine which category (MMP or WMP) XMP players count towards.
-    Returns "MMP" or "WMP"
-    """
-    mmp_count = len(data["signups"].get("mmp", []))
-    wmp_count = len(data["signups"].get("wmp", []))
-    
-    if mmp_count < wmp_count:
-        return "DOM this week"
-    elif wmp_count < mmp_count:
-        return "DOW this week"
+def session_details(session: date) -> str:
+    return f"Date/Time: {fmt_day(session)}, {TIME_LABEL}\nLocation: {LOCATION}\n"
+
+
+def payment_options_text() -> str:
+    return (
+        f"Please pay {PRICE} using one of these options:\n"
+        f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
+        f"- Zelle: {ZELLE_CONTACT}. Please include the date of play.\n"
+        "- In person at the field\n"
+    )
+
+
+def payment_reminder(method: Optional[str]) -> str:
+    if method == "in_person":
+        return "Please remember to pay Annie in person.\n"
+    if method in ("venmo", "zelle"):
+        return "Thank you for signing up!\n"
+    return payment_options_text()  # no payment answer yet (e.g. a spot opened while they signed up)
+
+
+def refund_note() -> str:
+    return (
+        f"If you can no longer make it, please remove your signup at {APP_URL} so the next player can join. "
+        "You'll get a confirmation email, and Annie will refund your payment as soon as she can if you've already paid.\n"
+    )
+
+
+def email_status(row: Dict, session: date, on_roster: bool, position: Optional[int] = None):
+    if on_roster:
+        subject = f"Winter Hoopla - You're in for {fmt_day(session)}"
+        body = (
+            f"Hi {row['name']},\n\n"
+            "You're signed up for Mixed Winter Hoopla indoor goaltimate.\n\n"
+            f"{session_details(session)}\n"
+            f"{payment_reminder(row['payment_method'])}\n"
+            f"{refund_note()}\n"
+            "See you on the field!\n- Annie\n\n(This is an automated email.)"
+        )
     else:
-        # If equal, count towards MMP by default
-        return "DOM this week"
+        label = GENDER_LABELS[row["gender_match"]]
+        subject = f"Winter Hoopla - Waitlisted for {fmt_day(session)}"
+        body = (
+            f"Hi {row['name']},\n\n"
+            f"You're #{position} on the {label} waitlist for Mixed Winter Hoopla indoor goaltimate. "
+            "No payment is needed for now. If a spot opens up, we'll email you with payment options.\n\n"
+            f"{session_details(session)}\n"
+            f"If you no longer want a spot, please remove yourself from the waitlist at {APP_URL}.\n\n"
+            "- Annie\n\n(This is an automated email.)"
+        )
+    send_email(row["email"], subject, body)
 
 
-def get_effective_counts(data: Dict) -> Tuple[int, int]:
-    """
-    Calculate effective counts for MMP and WMP, accounting for XMP players.
-    XMP players count towards whichever category has fewer players.
-    Returns (effective_mmp_count, effective_wmp_count)
-    """
-    mmp_count = len(data["signups"].get("mmp", []))
-    wmp_count = len(data["signups"].get("wmp", []))
-    no_pref_count = len(data["signups"].get("no_preference", []))
-    
-    # Distribute no_preference players to the category with fewer players
-    if mmp_count < wmp_count:
-        effective_mmp = mmp_count + no_pref_count
-        effective_wmp = wmp_count
-    elif wmp_count < mmp_count:
-        effective_mmp = mmp_count
-        effective_wmp = wmp_count + no_pref_count
+def email_promoted(row: Dict, session: date):
+    body = (
+        f"Hi {row['name']},\n\n"
+        "A spot opened up and you've been moved off the waitlist. You're now signed up for "
+        "Mixed Winter Hoopla indoor goaltimate.\n\n"
+        f"{session_details(session)}\n"
+        f"{payment_options_text()}\n"
+        f"{refund_note()}\n"
+        "See you on the field!\n- Annie\n\n(This is an automated email.)"
+    )
+    send_email(row["email"], f"Winter Hoopla - You have a spot for {fmt_day(session)}", body)
+
+
+CANCEL_PAYMENT_TEXT = {
+    "venmo": "Payment: you marked that you paid on Venmo. Annie will refund your payment as soon as she can.",
+    "zelle": "Payment: you marked that you paid on Zelle. Annie will refund your payment as soon as she can.",
+    "in_person": "Payment: you hadn't paid yet (you planned to pay in person), so there's nothing to refund.",
+    None: (
+        "Payment: no payment was marked on the signup form. If you already paid on Venmo or Zelle, "
+        "Annie will refund your payment as soon as she can."
+    ),
+}
+
+
+def email_cancelled(row: Dict, session: date, was_on_roster: bool, promoted: List[Dict]):
+    """Confirm a cancellation to the player. Dropouts from the roster also CC the organizer."""
+    label = GENDER_LABELS[row["gender_match"]]
+    if was_on_roster:
+        moved_up = ", ".join(p["name"] for p in promoted) or "No one (the spot is open)"
+        body = (
+            f"Hi {row['name']},\n\n"
+            f"Your cancellation for {fmt_day(session)} went through. You're no longer signed up.\n\n"
+            f"{CANCEL_PAYMENT_TEXT.get(row.get('payment_method'), CANCEL_PAYMENT_TEXT[None])}\n\n"
+            "Details:\n"
+            f"Name: {row['name']}\n"
+            f"Email: {row['email']}\n"
+            f"Gender match: {label}\n"
+            f"Removed at: {fmt_dt(datetime.now(TZ))}\n"
+            f"Moved up from the waitlist: {moved_up}\n\n"
+            "Hope to see you another week!\n- Annie\n\n(This is an automated email.)"
+        )
+        send_email(row["email"], f"Winter Hoopla - Cancellation confirmed for {fmt_day(session)}", body, cc=CONTACT_EMAIL)
     else:
-        # If equal, distribute to MMP by default
-        effective_mmp = mmp_count + no_pref_count
-        effective_wmp = wmp_count
-    
-    return (effective_mmp, effective_wmp)
+        body = (
+            f"Hi {row['name']},\n\n"
+            f"You've been removed from the {label} waitlist for {fmt_day(session)}. No payment was taken, so there's nothing to refund.\n\n"
+            "Hope to see you another week!\n- Annie\n\n(This is an automated email.)"
+        )
+        send_email(row["email"], f"Winter Hoopla - Removed from the waitlist for {fmt_day(session)}", body)
 
 
-def signup_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, Optional[str]]:
-    """
-    Sign up a player.
-    Returns (success, message)
-    """
-    signups = data["signups"][player_type]
-    waitlist = data["waitlists"][player_type]
-    
-    # Check if already signed up
-    if player_id in signups:
-        return False, "You are already signed up!"
-    
-    # Check if already on waitlist
-    if player_id in waitlist:
-        return False, "You are already on the waitlist!"
-    
-    # For XMP (no_preference) players, check against the category with fewer players
-    if player_type == "no_preference":
-        mmp_count = len(data["signups"]["mmp"])
-        wmp_count = len(data["signups"]["wmp"])
-        no_pref_count = len(data["signups"]["no_preference"])
+# ---------------------------------------------------------------------------
+# Actions
+# ---------------------------------------------------------------------------
+def do_signup(session: date, name: str, email: str, gender_match: str, payment: Optional[str]) -> Tuple[bool, str]:
+    rows = load_rows(session)
+    if find_active(rows, email):
+        return False, "That email is already signed up for this week."
+    try:
+        inserted = (
+            get_db()
+            .table(TABLE)
+            .insert({
+                "session_date": session.isoformat(),
+                "name": name.strip(),
+                "email": email.strip().lower(),
+                "gender_match": gender_match,
+                "payment_method": payment,
+            })
+            .execute()
+        ).data[0]
+    except Exception as e:
+        if "duplicate" in str(e).lower() or "23505" in str(e):
+            return False, "That email is already signed up for this week."
+        raise
 
-        
-        # Determine which category to count towards (before adding this player)
-        if mmp_count < wmp_count:
-            # Count towards MMP limit
-            # Effective MMP count after adding would be: mmp_count + no_pref_count + 1
-            if mmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
-                signups.append(player_id)
-                save_data(data)
-                return True, "Successfully signed up!"
+    roster, waitlist = build_roster(load_rows(session))
+    if any(s.row["id"] == inserted["id"] for s in roster):
+        email_status(inserted, session, True)
+        if payment is None:  # a spot opened up between loading the page and submitting
+            return True, f"Good news, a spot opened up and you're signed up! 🎉 Check your email for payment options."
+        return True, "You're signed up! 🎉"
+    position = waitlist_position(waitlist, inserted)
+    label = GENDER_LABELS[inserted["gender_match"]]
+    email_status(inserted, session, False, position)
+    return True, f"{label} spots are full, so you've been added to the {label} waitlist (#{position}). No payment needed unless a spot opens up."
+
+
+def do_cancel(session: date, row: Dict) -> str:
+    before, _ = build_roster(load_rows(session))
+    before_ids = {s.row["id"] for s in before}
+    was_on_roster = row["id"] in before_ids
+    get_db().table(TABLE).update({"cancelled_at": datetime.now(TZ).isoformat()}).eq("id", row["id"]).execute()
+    after, _ = build_roster(load_rows(session))
+    promoted = [s.row for s in after if s.row["id"] not in before_ids]
+    for p in promoted:
+        email_promoted(p, session)
+    email_cancelled(row, session, was_on_roster, promoted)
+    if not was_on_roster:
+        return "You've been removed from the waitlist. A confirmation email is on its way."
+    msg = "Your signup was removed. A confirmation email is on its way, and Annie will refund your payment as soon as she can if you already paid."
+    if promoted:
+        msg += " The next player on the waitlist has been moved up."
+    return msg
+
+
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+def render_info():
+    st.markdown(
+        f"""
+**Mondays at {LOCATION}, {TIME_LABEL}** · {fmt_day(SESSIONS[0])} – {fmt_day(SESSIONS[-1])}
+
+- Up to 20 players per week ({MAX_PLAYERS_PER_SIDE} MMP, {MAX_PLAYERS_PER_SIDE} WMP) on one field, 2:2 gender match ratio.
+- **{PRICE} per night**, pay as you go. First come, first served — signups open **Fridays at {SIGNUP_OPEN_TIME.strftime('%-I%p').lower()}** for the following Monday.
+- We play the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact** (different from Ultimate Chicago league / pickup rules).
+- Indoor turf: molded plastic or turf cleats are fine, no metal spikes. Bring a light, a dark, and water.
+"""
+    )
+
+
+def render_payment_info():
+    st.markdown(f"**Suggested payment: {PRICE}**  \n Venmo: [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})  \n Zelle: {ZELLE_CONTACT}")
+
+
+def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
+    mmp = [s for s in roster if s.side == "mmp"]
+    wmp = [s for s in roster if s.side == "wmp"]
+    st.subheader("Who's playing")
+    if ORGANIZER_NOTE:
+        st.caption(ORGANIZER_NOTE)
+
+    col1, col2 = st.columns(2)
+    for col, title, spots in ((col1, "MMP", mmp), (col2, "WMP", wmp)):
+        with col:
+            st.markdown(f"#### {title} ({len(spots)}/{MAX_PLAYERS_PER_SIDE})")
+            if spots:
+                st.markdown("\n".join(f"{i}. {s.row['name']}" for i, s in enumerate(spots, 1)))
             else:
-                waitlist.append(player_id)
-                save_data(data)
-                position = len(waitlist)
-                return True, f"Added to waitlist (position {position})."
-        elif wmp_count < mmp_count:
-            # Count towards WMP limit
-            # Effective WMP count after adding would be: wmp_count + no_pref_count + 1
-            if wmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
-                signups.append(player_id)
-                save_data(data)
-                return True, "Successfully signed up!"
-            else:
-                waitlist.append(player_id)
-                save_data(data)
-                position = len(waitlist)
-                return True, f"Added to waitlist (position {position})."
+                st.caption(f"No {title} players yet")
+            waiting = side_waitlist(waitlist, title.lower())
+            if waiting:
+                st.markdown(f"**{title} waitlist ({len(waiting)})**")
+                st.markdown("\n".join(f"{i}. {s.row['name']}" for i, s in enumerate(waiting, 1)))
+
+    if waitlist:
+        st.caption("When a spot opens, the next player on that side's waitlist is moved up and emailed.")
+
+
+def render_signup_form(session: date, roster: List[Spot]):
+    st.subheader("Sign up")
+
+    # Chosen outside the form so the page can react right away: payment is only
+    # asked for when this side still has open spots.
+    gm = st.radio(
+        "Gender match *",
+        options=list(GENDER_LABELS),
+        format_func=GENDER_LABELS.get,
+        index=None,
+        horizontal=True,
+        key="signup_gm",
+    )
+    spot_open = False
+    if gm:
+        label = GENDER_LABELS[gm]
+        open_spots = MAX_PLAYERS_PER_SIDE - sum(1 for s in roster if s.side == gm)
+        spot_open = open_spots > 0
+        if spot_open:
+            st.success(f"{open_spots} {label} spot{'s' if open_spots != 1 else ''} open.")
+            render_payment_info()
         else:
-            # Equal counts, count towards MMP by default
-            # Effective MMP count after adding would be: mmp_count + no_pref_count + 1
-            if mmp_count + no_pref_count + 1 <= MAX_PLAYERS_PER_TYPE:
-                signups.append(player_id)
-                save_data(data)
-                return True, "Successfully signed up!"
-            else:
-                waitlist.append(player_id)
-                save_data(data)
-                position = len(waitlist)
-                return True, f"Added to waitlist (position {position})."
+            st.info(
+                f"{label} spots are full, so you'll be added to the {label} waitlist. No payment needed now. "
+                "If a spot opens up, we'll email you with payment options."
+            )
+
+    payment_options = ["venmo"] + (["zelle"] if ZELLE_CONTACT else []) + ["in_person"]
+    with st.form("signup", clear_on_submit=False):
+        c1, c2 = st.columns(2)
+        name = c1.text_input("Full name *")
+        email = c2.text_input("Email *", help="Used to notify you if you're moved up from the waitlist.")
+        payment = None
+        if spot_open:
+            payment = st.radio("Payment *", options=payment_options, format_func=PAYMENT_LABELS.get, index=None)
+        commit = st.checkbox("I plan to attend and will remove my signup ASAP if I can't make it.")
+        submitted = st.form_submit_button("Join waitlist" if gm and not spot_open else "Sign up", type="primary")
+
+    if submitted:
+        errors = []
+        if not name.strip():
+            errors.append("Enter your name.")
+        if "@" not in email or "." not in email.split("@")[-1]:
+            errors.append("Enter a valid email address.")
+        if not gm:
+            errors.append("Choose a gender match.")
+        if spot_open and not payment:
+            errors.append("Choose how you're paying.")
+        if not commit:
+            errors.append("Please confirm you plan to attend.")
+        if errors:
+            for e in errors:
+                st.error(e)
+            return
+        ok, msg = do_signup(session, name, email, gm, payment)
+        st.session_state["flash"] = ("success" if ok else "error", msg)
+        st.rerun()
+
+
+def render_manage(session: date, rows: List[Dict], roster: List[Spot], waitlist: List[Spot]):
+    st.subheader("Can't make it?")
+    st.write("Enter the email you signed up with to remove your signup or waitlist spot.")
+    email = st.text_input("Email", key="manage_email", label_visibility="collapsed", placeholder="your.email@example.com")
+    if not email:
+        return
+    row = find_active(rows, email)
+    if not row:
+        st.info("No signup found for that email this week.")
+        return
+    if any(s.row["id"] == row["id"] for s in roster):
+        st.success(f"{row['name']}, you're signed up as **{GENDER_LABELS[row['gender_match']]}**.")
+        st.caption("If you remove your signup, you'll get a confirmation email and Annie will refund your payment as soon as she can if you've already paid.")
     else:
-        # For MMP and WMP, use standard logic
-        if len(signups) < MAX_PLAYERS_PER_TYPE:
-            signups.append(player_id)
-            save_data(data)
-            return True, "Successfully signed up!"
-        else:
-            # Add to waitlist
-            waitlist.append(player_id)
-            save_data(data)
-            position = len(waitlist)
-            return True, f"Added to waitlist (position {position})."
-
-
-def remove_player(data: Dict, player_id: str, player_type: str) -> Tuple[bool, Optional[str]]:
-    """
-    Remove a player from signup and promote from waitlist if needed.
-    Returns (success, message)
-    """
-    signups = data["signups"][player_type]
-    waitlist = data["waitlists"][player_type]
-    
-    # Check if player is signed up
-    if player_id in signups:
-        signups.remove(player_id)
-        
-        # Promote from waitlist if available
-        if waitlist:
-            promoted_id = waitlist.pop(0)
-            signups.append(promoted_id)
-            
-            # Send email notification to promoted player
-            if promoted_id in data["players"]:
-                promoted_player = data["players"][promoted_id]
-                email = promoted_player.get("email", "")
-                if email:
-                    subject = f"Winter Hoopla - You have a spot for {STATIC_DATE} {STATIC_TIME}"
-                    body = f"Hi {promoted_player['name']},\n\n"
-                    body += f"This is an automated email. You've been promoted from the waitlist and are now signed up "
-                    body += f"to attend indoor goaltimate at ComEd Rec Center.\n\n"
-                    body += f"Session Details:\n"
-                    body += f"Date/Time: {STATIC_DATE}, {STATIC_TIME}\n"
-                    body += f"Location: ComEd Rec Center\n\n"
-                    body += f"If you can no longer attend, please remove your signup so that the next player on the waitlist can be promoted.\n"
-                    body += f"You can manage your signup at: https://winter-hoopla.streamlit.app/\n\n"
-                    body += "See you on the field!\n\n"
-                    body += "- Annie"
-                    send_email(email, subject, body)
-            
-            save_data(data)
-            return True, "Removed from signup. Top waitlist player has been promoted and notified."
-        else:
-            save_data(data)
-            return True, "Successfully removed from signup."
-    
-    # Check if player is on waitlist
-    elif player_id in waitlist:
-        waitlist.remove(player_id)
-        save_data(data)
-        return True, "Removed from waitlist."
-    else:
-        return False, "You are not signed up."
-
-
+        label = GENDER_LABELS[row["gender_match"]]
+        st.info(f"{row['name']}, you're #{waitlist_position(waitlist, row)} on the **{label}** waitlist.")
+    if st.button("Remove my signup", type="primary"):
+        st.session_state["flash"] = ("success", do_cancel(session, row))
+        st.session_state.pop("manage_email", None)
+        st.rerun()
 
 
 def main():
-    # Load data
-    data = load_data()
+    st.set_page_config(page_title="Mixed Winter Hoopla", page_icon=drive_image(FAVICON_DRIVE_ID) or "🥏", layout="wide")
 
-    favicon_fid = "1hpdyNpeAp5AXoyf4svHIog7X0i8h_FvX"
-    favicon_url = f"https://drive.google.com/uc?export=view&id={favicon_fid}"
-    favicon = requests.get(favicon_url).content
-    st.set_page_config(
-        page_title="Mixed Winter Hoopla",
-        page_icon=favicon,
-        layout="wide"
+    at = now()
+    session = current_session(at)
+
+    logo = drive_image(LOGO_DRIVE_ID)
+    if logo:
+        logo_col, header_col = st.columns([1, 4])
+        logo_col.image(logo)
+    else:
+        header_col = st.container()
+
+    with header_col:
+        st.title("Session 1 (Mixed)" if logo else SEASON_TITLE)
+        if session is None:
+            st.success("That's a wrap on Session 1 Mixed — thanks for playing! 🥏")
+            st.write(f"Questions or want updates on Session 2? Email {CONTACT_EMAIL}.")
+            return
+        week = SESSIONS.index(session) + 1
+        st.subheader(f"Week {week} of {NUM_SESSIONS}: {fmt_day(session)}, {TIME_LABEL}")
+        render_info()
+    st.divider()
+
+    opens = signup_opens_at(session)
+    if at < opens:
+        st.info(f"⏰ Signups for **{fmt_day(session)}** open **{fmt_dt(opens)}**. Check back then!")
+        st.write(f"Questions? Email {CONTACT_EMAIL}.")
+        return
+
+    if "flash" in st.session_state:
+        kind, msg = st.session_state.pop("flash")
+        getattr(st, kind)(msg)
+
+    rows = load_rows(session)
+    roster, waitlist = build_roster(rows)
+
+    st.warning(
+        "Please only sign up if you plan to attend. If you need to cancel, remove your signup as early as "
+        "possible (ideally before Monday) so someone on the waitlist can join."
+    )
+    st.caption(
+        "If fewer than 6 WMP sign up for a week, MMP may be moved off the waitlist and we'll play with no "
+        "prescribed ratio. Anyone moved up that way will be notified around noon on Monday."
     )
 
-    logo_fid = "1hSXQo-9SBkX62tROSl9d_CzjHY3L6zWb"
-    logo_url = f"https://drive.google.com/uc?export=view&id={logo_fid}"
-    logo = requests.get(logo_url).content
+    render_roster(session, roster, waitlist)
+    st.divider()
 
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        st.image(logo)
-    with col2:
-        st.title("Session 1 (Mixed)")
-        st.subheader(f"Week {WEEK_NUMBER}: **{STATIC_DATE}, {STATIC_TIME} at ComEd Rec Center**")
-        st.write("- 8:45 - 9:00pm: Drills or small-sided reps")
-        st.write("- 9:00 - 10:30pm: Scrimmage")
-        st.write("Indoor turf field. Molded plastic cleats and turf cleats are fine. No metal spikes allowed. Please bring a light, dark, and water.")
-        st.write("$16 / night. [Pay @aphan on Venmo.](%https://venmo.com/u/aphan) Please include date of play.")
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        render_signup_form(session, roster)
+    with right:
+        render_manage(session, rows, roster, waitlist)
 
-    st.markdown("---")
-    
-    # Show signups - no authentication required
-    st.subheader("Current Signups and Waitlist")
-    st.write(":red[Please do not sign up unless you plan to attend. If you need to cancel, please remove your signup ASAP to allow others to join.]")
-    st.write("**:red[If possible, please do not wait until Tuesday to cancel your signup. Thank you!]**")
-    st.write("If there are fewer than 6 WMP signed up for a given week, I will take MMP off the waitlist and we will run a game with no prescribed ratio. If this occurs I will notify players that are being moved up from the waitlist around noon the day of.")
-    
-    # Calculate effective counts for display
-    effective_mmp, effective_wmp = get_effective_counts(data)
-    no_pref_count = len(data["signups"].get("no_preference", []))
-
-    st.write(":blue[Annie, Graham, and Tuc are attending but we are not included in the counts below.]")
-    col1, col2, col3 = st.columns(3)
-    st.write("XMP (players with no gender matching preference) will count towards whichever category has fewer players.")
-    
-
-    with col1:
-        st.subheader(f"MMP ({effective_mmp}/{MAX_PLAYERS_PER_TYPE})")
-        if data["signups"]["mmp"]:
-            for idx, pid in enumerate(data["signups"]["mmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"{idx}. {player_name_display}")
-        else:
-            st.info("No MMP players")
-        
-        # Show waitlist
-        if data["waitlists"].get("mmp"):
-            st.markdown("**MMP Waitlist:**")
-            for idx, pid in enumerate(data["waitlists"]["mmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"  {idx}. {player_name_display}")
-    
-    with col2:
-        st.subheader(f"WMP ({effective_wmp}/{MAX_PLAYERS_PER_TYPE})")
-        if data["signups"]["wmp"]:
-            for idx, pid in enumerate(data["signups"]["wmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"{idx}. {player_name_display}")
-        else:
-            st.info("No WMP players")
-        
-        # Show waitlist
-        if data["waitlists"].get("wmp"):
-            st.markdown("**WMP Waitlist:**")
-            for idx, pid in enumerate(data["waitlists"]["wmp"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"  {idx}. {player_name_display}")
-    
-    with col3:
-        st.subheader(f"XMP ({no_pref_count})")
-        if data["signups"].get("no_preference"):
-            # Determine which category XMP players count towards
-            xmp_category = get_xmp_category(data)
-            for idx, pid in enumerate(data["signups"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"{idx}. {player_name_display} ({xmp_category})")
-        else:
-            st.info("No XMP players")
-        
-        # Show waitlist
-        if data["waitlists"].get("no_preference"):
-            st.markdown("**XMP Waitlist:**")
-            # For waitlist, determine category based on current signups
-            xmp_category = get_xmp_category(data)
-            for idx, pid in enumerate(data["waitlists"]["no_preference"], 1):
-                player_name_display = data["players"].get(pid, {}).get("name", pid)
-                st.write(f"  {idx}. {player_name_display} ({xmp_category})")
-    
-    st.markdown("---")
-    
-    # Player identification section - required for signup/removal
-    st.subheader("Sign Up or Manage Sign Up / Waitlist")
-    st.write("* **:blue[Sign Up]**: enter your name and email. Email is required so that we can automatically notify people who are moved up from the waitlist.")
-    st.write("* **:red[Remove Your Signup or Waitlist Entry]:** To remove your signup or waitlist entry, enter the same name and email you used to sign up. You will see an option to remove yourself.")
-    
-    col_name, col_email = st.columns(2)
-    
-    with col_name:
-        player_name = st.text_input("Full Name *", key="player_name", placeholder="Enter your name")
-    
-    with col_email:
-        player_email = st.text_input("Email Address *", key="player_email", placeholder="your.email@example.com")
-    
-    # Validate that both name and email are provided
-    player_id = None
-    can_interact = False
-    
-    if player_name and player_email:
-        # Basic email validation
-        if "@" in player_email and "." in player_email.split("@")[1]:
-            # Create or get player ID
-            player_id = player_name.lower().strip().replace(" ", "_")
-            
-            # Store player info if not exists or update email
-            if player_id not in data["players"]:
-                data["players"][player_id] = {
-                    "name": player_name,
-                    "email": player_email,
-                    "type": None
-                }
-            else:
-                data["players"][player_id]["email"] = player_email
-                data["players"][player_id]["name"] = player_name
-            save_data(data)
-            
-            can_interact = True
-        else:
-            st.error("Please enter a valid email address")
-    elif player_name or player_email:
-        st.warning("⚠️ Both name and email are required to sign up or remove signup")
-    
-    if can_interact:
-        
-        # Check if player is signed up or on waitlist
-        is_signed_up = False
-        is_on_waitlist = False
-        player_type_current = None
-        
-        if player_id in data["signups"].get("mmp", []):
-            is_signed_up = True
-            player_type_current = "mmp"
-        elif player_id in data["signups"].get("wmp", []):
-            is_signed_up = True
-            player_type_current = "wmp"
-        elif player_id in data["signups"].get("no_preference", []):
-            is_signed_up = True
-            player_type_current = "no_preference"
-        
-        if not is_signed_up:
-            if player_id in data["waitlists"].get("mmp", []):
-                is_on_waitlist = True
-                player_type_current = "mmp"
-            elif player_id in data["waitlists"].get("wmp", []):
-                is_on_waitlist = True
-                player_type_current = "wmp"
-            elif player_id in data["waitlists"].get("no_preference", []):
-                is_on_waitlist = True
-                player_type_current = "no_preference"
-        
-        # Consolidated Sign Up / Remove Signup section
-        if is_signed_up or is_on_waitlist:
-            # Show Remove Signup option
-            st.subheader("Remove Signup")
-            type_display = "XMP" if player_type_current == "no_preference" else player_type_current.upper()
-            if is_signed_up:
-                st.warning(f"✅ You are signed up as **{type_display}**")
-            elif is_on_waitlist:
-                position = data["waitlists"][player_type_current].index(player_id) + 1
-                st.info(f"⏳ You are on the waitlist (position {position}) as **{type_display}**")
-            
-            if st.button("Remove Signup", type="primary", key="remove_btn"):
-                success, message = remove_player(data, player_id, player_type_current)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
-                st.rerun()
-        else:
-            # Show Sign Up option
-            st.info("You are not signed up for this week")
-            
-            player_type = st.radio(
-                "Gender Match",
-                options=["MMP", "WMP", "XMP"],
-                key="signup_type",
-                index=None,
-            )
-            
-            if player_type:
-                # Convert display name to internal format
-                player_type_internal = "no_preference" if player_type == "XMP" else player_type.lower()
-                
-                if st.button("Sign Up", type="primary", key="signup_btn"):
-                    success, message = signup_player(data, player_id, player_type_internal)
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
-                    st.rerun()
-    
-    # Footer with email configuration status
-    st.markdown("---")
-    st.write("If you have any feedback or questions, please email Annie: winterhoopla@gmail.com")
-    if EMAIL_CONFIG["enabled"]:
-        st.caption("Email notifications enabled. You will receive an email if you are moved up from the waitlist.")
-    else:
-        st.caption("ℹ️ Email notifications disabled. Configure email settings to enable waitlist notifications.")
+    st.divider()
+    st.caption(
+        f"Questions or feedback? Email {CONTACT_EMAIL}."
+        + (" You'll get an email when you sign up or move off the waitlist." if EMAIL_CONFIG["enabled"] else "")
+    )
 
 
 if __name__ == "__main__":
