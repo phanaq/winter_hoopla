@@ -25,6 +25,10 @@ MAX_PLAYERS_PER_SIDE = 10  # 10 MMP + 10 WMP
 # Signups open on the Friday before each Monday session at this time.
 SIGNUP_OPEN_DAYS_BEFORE = 3
 SIGNUP_OPEN_TIME = time(17, 0)
+# Weeks whose signups open at a different time than the usual Friday 5pm.
+SIGNUP_OPEN_OVERRIDES = {
+    date(2026, 11, 16): datetime(2026, 11, 11, 0, 0, tzinfo=TZ),  # week 1 opened early
+}
 
 VENMO_HANDLE = "aphan"
 ZELLE_CONTACT = "512-785-7660"  # Zelle option is hidden while blank
@@ -104,6 +108,8 @@ def now() -> datetime:
 # Schedule
 # ---------------------------------------------------------------------------
 def signup_opens_at(session: date) -> datetime:
+    if session in SIGNUP_OPEN_OVERRIDES:
+        return SIGNUP_OPEN_OVERRIDES[session]
     return datetime.combine(session - timedelta(days=SIGNUP_OPEN_DAYS_BEFORE), SIGNUP_OPEN_TIME, TZ)
 
 
