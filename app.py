@@ -483,6 +483,7 @@ def render_manage(session: date, rows: List[Dict], roster: List[Spot], waitlist:
     st.subheader("Can't make it?")
     st.write("Enter the email you signed up with to remove your signup or waitlist spot.")
     email = st.text_input("Email", key="manage_email", label_visibility="collapsed", placeholder="your.email@example.com")
+    st.image("Zelle_QR.png", caption="Zelle QR code")
     if not email:
         return
     row = find_active(rows, email)
