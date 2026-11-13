@@ -387,11 +387,13 @@ Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')
 
 
 def render_payment_info():
-    if VENMO_ENABLED:
-        methods = f"Venmo: [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})  \nZelle: {ZELLE_CONTACT}"
-    else:
-        methods = f"We currently are accepting Zelle and cash. Venmo is not yet available.  \nZelle: {ZELLE_CONTACT}"
-    st.markdown(f"**Suggested payment: {PRICE}**  \n{methods}")
+    st.write("""
+        **Rates per night**
+        * Community:  $10-20
+        * Standard: $20
+        * Supporter: $20-30  \n
+        **Payment methods** - Zelle and cash. Venmo will be available in future weeks.
+    """)
 
 
 def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
