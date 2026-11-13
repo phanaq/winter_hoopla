@@ -31,7 +31,8 @@ SIGNUP_OPEN_OVERRIDES = {
 }
 
 VENMO_HANDLE = "aphan"
-ZELLE_CONTACT = "512-785-7660"  # Zelle option is hidden while blank
+VENMO_ENABLED = False  # flip to True once Venmo is set up again
+ZELLE_CONTACT = "winterhoopla@gmail.com"  # Zelle option is hidden while blank
 CONTACT_EMAIL = "winterhoopla@gmail.com"
 APP_URL = "https://winter-hoopla.streamlit.app/"
 ORGANIZER_NOTE = ""  # e.g. "Annie and friends are attending but not included in the counts below."
@@ -45,7 +46,7 @@ GENDER_LABELS = {"mmp": "MMP", "wmp": "WMP"}
 PAYMENT_LABELS = {
     "venmo": f"I've paid on Venmo (@{VENMO_HANDLE})",
     "zelle": f"I've paid on Zelle ({ZELLE_CONTACT})",
-    "in_person": f"I'll pay in person at the field",
+    "in_person": "I'll pay cash in person at the field",
 }
 
 SESSIONS = [FIRST_SESSION + timedelta(weeks=i) for i in range(NUM_SESSIONS)]
@@ -215,9 +216,10 @@ def session_details(session: date) -> str:
 def payment_options_text() -> str:
     return (
         f"Please pay {PRICE} using one of these options:\n"
-        f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
-        f"- Zelle: {ZELLE_CONTACT}. Please include the date of play.\n"
-        "- In person at the field\n"
+        + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
+           if VENMO_ENABLED else "")
+        + f"- Zelle: {ZELLE_CONTACT}. Please include the date of play.\n"
+        "- Cash in person at the field\n"
     )
 
 
@@ -279,7 +281,7 @@ CANCEL_PAYMENT_TEXT = {
     "zelle": "Payment: you marked that you paid on Zelle. Annie will refund your payment as soon as she can.",
     "in_person": "Payment: you hadn't paid yet (you planned to pay in person), so there's nothing to refund.",
     None: (
-        "Payment: no payment was marked on the signup form. If you already paid on Venmo or Zelle, "
+        "Payment: no payment was marked on the signup form. If you already paid on Zelle, "
         "Annie will refund your payment as soon as she can."
     ),
 }
@@ -373,18 +375,23 @@ def do_cancel(session: date, row: Dict) -> str:
 def render_info():
     st.markdown(
         f"""
-**Mondays at {LOCATION}, {TIME_LABEL}** · {fmt_day(SESSIONS[0])} – {fmt_day(SESSIONS[-1])}
+Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')}
 
 - Up to 20 players per week ({MAX_PLAYERS_PER_SIDE} MMP, {MAX_PLAYERS_PER_SIDE} WMP) on one field, 2:2 gender match ratio.
-- **{PRICE} per night**, pay as you go. First come, first served — signups open **Fridays at {SIGNUP_OPEN_TIME.strftime('%-I%p').lower()}** for the following Monday.
-- We play the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact** (different from Ultimate Chicago league / pickup rules).
-- Indoor turf: molded plastic or turf cleats are fine, no metal spikes. Bring a light, a dark, and water.
+- **{PRICE} per night**, pay as you go, first come, first served. Signups open **Fridays** for the following Monday.
+- We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**.
+- Molded plastic or turf cleats are fine. Bring a light, a dark, and water.
+- The first 15-30 minutes may be dedicated to drills depending on interest.
 """
     )
 
 
 def render_payment_info():
-    st.markdown(f"**Suggested payment: {PRICE}**  \n Venmo: [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})  \n Zelle: {ZELLE_CONTACT}")
+    if VENMO_ENABLED:
+        methods = f"Venmo: [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})  \nZelle: {ZELLE_CONTACT}"
+    else:
+        methods = f"We currently are accepting Zelle and cash. Venmo is not yet available.  \nZelle: {ZELLE_CONTACT}"
+    st.markdown(f"**Suggested payment: {PRICE}**  \n{methods}")
 
 
 def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
@@ -438,7 +445,7 @@ def render_signup_form(session: date, roster: List[Spot]):
                 "If a spot opens up, we'll email you with payment options."
             )
 
-    payment_options = ["venmo"] + (["zelle"] if ZELLE_CONTACT else []) + ["in_person"]
+    payment_options = (["venmo"] if VENMO_ENABLED else []) + (["zelle"] if ZELLE_CONTACT else []) + ["in_person"]
     with st.form("signup", clear_on_submit=False):
         c1, c2 = st.columns(2)
         name = c1.text_input("Full name *")
@@ -530,12 +537,11 @@ def main():
     roster, waitlist = build_roster(rows)
 
     st.warning(
-        "Please only sign up if you plan to attend. If you need to cancel, remove your signup as early as "
-        "possible (ideally before Monday) so someone on the waitlist can join."
+        "If you need to cancel, remove your signup as soon as possible so somebody on the waitlist can join."
     )
     st.caption(
-        "If fewer than 6 WMP sign up for a week, MMP may be moved off the waitlist and we'll play with no "
-        "prescribed ratio. Anyone moved up that way will be notified around noon on Monday."
+        "If <6 WMP sign up on a given week, MMP may be moved off the waitlist and we will play with no "
+        "prescribed ratio. Anyone who is moved up from the waitlist will be notified by email by Monday."
     )
 
     render_roster(session, roster, waitlist)
