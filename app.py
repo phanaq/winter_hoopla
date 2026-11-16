@@ -32,7 +32,7 @@ SIGNUP_OPEN_OVERRIDES = {
 
 VENMO_HANDLE = "aphan"
 VENMO_ENABLED = False  # flip to True once Venmo is set up again
-ZELLE_CONTACT = "winterhoopla@gmail.com"  # Zelle option is hidden while blank
+ZELLE_CONTACT = "WinterHoopla"  # Zelle ID (matches Zelle_QR.png); Zelle option is hidden while blank
 CONTACT_EMAIL = "winterhoopla@gmail.com"
 APP_URL = "https://winter-hoopla.streamlit.app/"
 ORGANIZER_NOTE = ""  # e.g. "Annie and friends are attending but not included in the counts below."
@@ -45,7 +45,7 @@ TABLE = "signups"
 GENDER_LABELS = {"mmp": "MMP", "wmp": "WMP"}
 PAYMENT_LABELS = {
     "venmo": f"I've paid on Venmo (@{VENMO_HANDLE})",
-    "zelle": f"I've paid on Zelle ({ZELLE_CONTACT})",
+    "zelle": f"I've paid on Zelle (Zelle ID: {ZELLE_CONTACT})",
     "in_person": "I'll pay cash in person at the field",
 }
 
@@ -218,7 +218,7 @@ def payment_options_text() -> str:
         f"Please pay {PRICE} using one of these options:\n"
         + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
            if VENMO_ENABLED else "")
-        + f"- Zelle: {ZELLE_CONTACT}. Please include the date of play.\n"
+        + f"- Zelle ID: {ZELLE_CONTACT}. Please include the date of play.\n"
         "- Cash in person at the field\n"
     )
 
@@ -387,12 +387,13 @@ Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')
 
 
 def render_payment_info():
-    st.write("""
+    st.write(f"""
         **Rates per night**
         * Community:  $10-20
         * Standard: $20
         * Supporter: $20-30  \n
-        **Payment methods** - Zelle and cash. Venmo will be available in future weeks.
+        **Payment methods** - Zelle and cash. Venmo will be available in future weeks.  \n
+        **Zelle ID:** {ZELLE_CONTACT}
     """)
 
 
