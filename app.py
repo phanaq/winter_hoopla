@@ -31,7 +31,7 @@ SIGNUP_OPEN_OVERRIDES = {
 }
 
 VENMO_HANDLE = "WinterHoopla"
-VENMO_ENABLED = True  # set to False to hide Venmo everywhere
+VENMO_ENABLED = False  # Venmo @WinterHoopla isn't set up yet; set to True to show it everywhere
 ZELLE_CONTACT = "WinterHoopla"  # Zelle ID (matches Zelle_QR.png); Zelle option is hidden while blank
 CONTACT_EMAIL = "winterhoopla@gmail.com"
 APP_URL = "https://winter-hoopla.streamlit.app/"
@@ -216,7 +216,8 @@ def session_details(session: date) -> str:
 def payment_options_text() -> str:
     return (
         f"Please pay {PRICE} using one of these options:\n"
-        f"- Zelle ID: {ZELLE_CONTACT} (preferred, no processing fees). Please include the date of play.\n"
+        f"- Zelle ID: {ZELLE_CONTACT}{' (preferred, no processing fees)' if VENMO_ENABLED else ''}. "
+        "Please include the date of play.\n"
         + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
            if VENMO_ENABLED else "")
         + "- Cash in person at the field\n"
@@ -387,15 +388,23 @@ Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')
 
 
 def render_payment_info():
-    st.write(f"""
-        **Rates per night**
-        * Community:  $10-20
-        * Standard: $20
-        * Supporter: $20-30  \n
-        **Payment methods** - Zelle (preferred, no processing fees), Venmo, or cash.  \n
-        **Zelle ID:** {ZELLE_CONTACT}  \n
-        **Venmo:** [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})
-    """)
+    st.markdown(
+        "**Rates per night**\n"
+        "* Community: \\$10-20\n"
+        "* Standard: \\$20\n"
+        "* Supporter: \\$20-30"
+    )
+    if VENMO_ENABLED:
+        st.markdown(
+            "**Payment methods** - Zelle (preferred, no processing fees), Venmo, or cash.  \n"
+            f"**Zelle ID:** {ZELLE_CONTACT}  \n"
+            f"**Venmo:** [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})"
+        )
+    else:
+        st.markdown(
+            "**Payment methods** - Zelle or cash. Venmo is coming soon but isn't set up yet.  \n"
+            f"**Zelle ID:** {ZELLE_CONTACT}"
+        )
 
 
 def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
