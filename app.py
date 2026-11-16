@@ -30,8 +30,8 @@ SIGNUP_OPEN_OVERRIDES = {
     date(2026, 11, 16): datetime(2026, 11, 11, 0, 0, tzinfo=TZ),  # week 1 opened early
 }
 
-VENMO_HANDLE = "aphan"
-VENMO_ENABLED = False  # flip to True once Venmo is set up again
+VENMO_HANDLE = "WinterHoopla"
+VENMO_ENABLED = True  # set to False to hide Venmo everywhere
 ZELLE_CONTACT = "WinterHoopla"  # Zelle ID (matches Zelle_QR.png); Zelle option is hidden while blank
 CONTACT_EMAIL = "winterhoopla@gmail.com"
 APP_URL = "https://winter-hoopla.streamlit.app/"
@@ -216,10 +216,10 @@ def session_details(session: date) -> str:
 def payment_options_text() -> str:
     return (
         f"Please pay {PRICE} using one of these options:\n"
+        f"- Zelle ID: {ZELLE_CONTACT} (preferred, no processing fees). Please include the date of play.\n"
         + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
            if VENMO_ENABLED else "")
-        + f"- Zelle ID: {ZELLE_CONTACT}. Please include the date of play.\n"
-        "- Cash in person at the field\n"
+        + "- Cash in person at the field\n"
     )
 
 
@@ -392,8 +392,9 @@ def render_payment_info():
         * Community:  $10-20
         * Standard: $20
         * Supporter: $20-30  \n
-        **Payment methods** - Zelle and cash. Venmo will be available in future weeks.  \n
-        **Zelle ID:** {ZELLE_CONTACT}
+        **Payment methods** - Zelle (preferred, no processing fees), Venmo, or cash.  \n
+        **Zelle ID:** {ZELLE_CONTACT}  \n
+        **Venmo:** [@{VENMO_HANDLE}](https://venmo.com/u/{VENMO_HANDLE})
     """)
 
 
@@ -448,7 +449,7 @@ def render_signup_form(session: date, roster: List[Spot]):
                 "If a spot opens up, we'll email you with payment options."
             )
 
-    payment_options = (["venmo"] if VENMO_ENABLED else []) + (["zelle"] if ZELLE_CONTACT else []) + ["in_person"]
+    payment_options = (["zelle"] if ZELLE_CONTACT else []) + (["venmo"] if VENMO_ENABLED else []) + ["in_person"]
     with st.form("signup", clear_on_submit=False):
         c1, c2 = st.columns(2)
         name = c1.text_input("Full name *")
