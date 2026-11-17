@@ -20,7 +20,9 @@ START_TIME = time(20, 15)
 END_TIME = time(22, 15)
 TIME_LABEL = "8:15 - 10:15pm"
 PRICE = "$20"
-MAX_PLAYERS_PER_SIDE = 10  # 10 MMP + 10 WMP
+# Sign-up spots per side. Two MMP organizers (Graham and Tuc) play every week without
+# signing up, so MMP has 2 fewer spots and the field ends up 12 MMP + 12 WMP.
+SPOTS = {"mmp": 10, "wmp": 12}
 
 # Signups open on the Friday before each Monday session at this time.
 SIGNUP_OPEN_DAYS_BEFORE = 3
@@ -35,7 +37,7 @@ VENMO_ENABLED = False  # Venmo @WinterHoopla isn't set up yet; set to True to sh
 ZELLE_CONTACT = "WinterHoopla"  # Zelle ID (matches Zelle_QR.png); Zelle option is hidden while blank
 CONTACT_EMAIL = "winterhoopla@gmail.com"
 APP_URL = "https://winter-hoopla.streamlit.app/"
-ORGANIZER_NOTE = ""  # e.g. "Annie and friends are attending but not included in the counts below."
+ORGANIZER_NOTE = ""  # optional caption shown under "Who's playing"
 
 # Designer assets (hosted on Google Drive)
 FAVICON_DRIVE_ID = "1hpdyNpeAp5AXoyf4svHIog7X0i8h_FvX"
@@ -144,14 +146,14 @@ class Spot:
 
 
 def build_roster(rows: List[Dict]) -> Tuple[List[Spot], List[Spot]]:
-    """Fill the roster in signup order. MMP and WMP each get MAX_PLAYERS_PER_SIDE spots."""
+    """Fill the roster in signup order. Each side gets SPOTS[side] spots."""
     counts = {"mmp": 0, "wmp": 0}
     roster, waitlist = [], []
     for row in sorted(rows, key=lambda r: r["id"]):  # ids increase in signup order
         side = row["gender_match"]
         if side not in counts:
             continue
-        if counts[side] < MAX_PLAYERS_PER_SIDE:
+        if counts[side] < SPOTS[side]:
             counts[side] += 1
             roster.append(Spot(row, side))
         else:
@@ -378,7 +380,7 @@ def render_info():
         f"""
 Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')}
 
-- Up to 20 players per week ({MAX_PLAYERS_PER_SIDE} MMP, {MAX_PLAYERS_PER_SIDE} WMP) on one field, 2:2 gender match ratio.
+- {SPOTS['mmp']} MMP and {SPOTS['wmp']} WMP sign-up spots per week on one field, 2:2 gender match ratio. Graham and Tuc are part of the organizing group and will play every week which is why there are 10 MMP spots available.
 - **{PRICE} per night**, pay as you go, first come, first served. Signups open **Fridays** for the following Monday.
 - We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**.
 - Molded plastic or turf cleats are fine. Bring a light, a dark, and water.
@@ -417,7 +419,7 @@ def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
     col1, col2 = st.columns(2)
     for col, title, spots in ((col1, "MMP", mmp), (col2, "WMP", wmp)):
         with col:
-            st.markdown(f"#### {title} ({len(spots)}/{MAX_PLAYERS_PER_SIDE})")
+            st.markdown(f"#### {title} ({len(spots)}/{SPOTS[title.lower()]})")
             if spots:
                 st.markdown("\n".join(f"{i}. {s.row['name']}" for i, s in enumerate(spots, 1)))
             else:
@@ -447,7 +449,7 @@ def render_signup_form(session: date, roster: List[Spot]):
     spot_open = False
     if gm:
         label = GENDER_LABELS[gm]
-        open_spots = MAX_PLAYERS_PER_SIDE - sum(1 for s in roster if s.side == gm)
+        open_spots = SPOTS[gm] - sum(1 for s in roster if s.side == gm)
         spot_open = open_spots > 0
         if spot_open:
             st.success(f"{open_spots} {label} spot{'s' if open_spots != 1 else ''} open.")

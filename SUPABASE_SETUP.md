@@ -25,7 +25,7 @@ never sent to browsers.
 ## How signups work
 
 - One row per player per Monday (`session_date`). Cancelling sets `cancelled_at`.
-- The roster is computed in signup order: 10 MMP + 10 WMP spots. Everyone else
+- The roster is computed in signup order: 10 MMP + 12 WMP spots (`SPOTS` in `app.py`). Everyone else
   is on the waitlist, and when someone
   cancels, newly rostered players are emailed.
 - Signups for each Monday open the Friday before at 5pm Central (`SIGNUP_OPEN_*` in `app.py`).
