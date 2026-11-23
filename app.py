@@ -19,7 +19,7 @@ NUM_SESSIONS = 7
 START_TIME = time(20, 15)
 END_TIME = time(22, 15)
 TIME_LABEL = "8:15 - 10:15pm"
-PRICE = "$18"  # standard rate; sliding scale is in render_payment_info
+PRICE = "$20"  # standard rate; sliding scale is in render_payment_info
 # Sign-up spots per side. Two MMP organizers (Graham and Tuc) play every week without
 # signing up, so MMP has 2 fewer spots and the field ends up 12 MMP + 12 WMP.
 SPOTS = {"mmp": 10, "wmp": 12}
@@ -229,7 +229,7 @@ def session_details(session: date) -> str:
 
 def payment_options_text() -> str:
     return (
-        f"Please pay {PRICE} (standard rate; our sliding scale runs from $10 to $25) using one of these options:\n"
+        f"Please pay {PRICE} (standard rate; our sliding scale runs from $10 to $30) using one of these options:\n"
         f"- Zelle ID: {ZELLE_CONTACT}{' (preferred, no processing fees)' if VENMO_ENABLED else ''}. "
         "Please include the date of play. Use the Zelle ID (or the QR code on the signup page), "
         "NOT an email address. Zelle payments sent to an email address will not go through.\n"
@@ -393,7 +393,7 @@ def render_info(session: date):
         f"""
 Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')}
 
-- {spots_for(session, 'mmp')} MMP and {spots_for(session, 'wmp')} WMP sign-up spots this week on one field, 2:2 gender match ratio. Graham and Tuc are part of the organizing group and will play every week which is why there are {spots_for(session, 'mmp')} MMP spots available.
+- {spots_for(session, 'mmp')} MMP and {spots_for(session, 'wmp')} WMP spots available this week. 2:2 gender match ratio.
 - **{PRICE} per night**, pay as you go, first come, first served. Signups open **Fridays** for the following Monday.
 - We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**. See our [Winter Hoopla rules doc](https://docs.google.com/document/d/1A9NDz113Cw4qZQB8PA5RlyVzL57kmvZgU0tMvcKkz-w/edit?tab=t.2bjdohz6qsi0) for details.
 - Molded plastic or turf cleats are fine. Bring a light, a dark, and water.
@@ -406,9 +406,9 @@ def render_payment_info():
     st.subheader("Payment")
     st.markdown(
         "**Rates per night**\n"
-        "* Community: \\$10-18\n"
-        "* Standard: \\$18\n"
-        "* Supporter: \\$18-25"
+        "* Community: \\$10-20\n"
+        "* Standard: \\$20\n"
+        "* Supporter: \\$20-30"
     )
     if VENMO_ENABLED:
         st.markdown(
