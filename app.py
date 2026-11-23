@@ -394,7 +394,6 @@ def render_info(session: date):
 Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')}
 
 - {spots_for(session, 'mmp')} MMP and {spots_for(session, 'wmp')} WMP spots available this week. 2:2 gender match ratio.
-- **{PRICE} per night**, pay as you go, first come, first served. Signups open **Fridays** for the following Monday.
 - We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**. See our [Winter Hoopla rules doc](https://docs.google.com/document/d/1A9NDz113Cw4qZQB8PA5RlyVzL57kmvZgU0tMvcKkz-w/edit?tab=t.2bjdohz6qsi0) for details.
 - Molded plastic or turf cleats are fine. Bring a light, a dark, and water.
 - The first 15-30 minutes may be dedicated to drills depending on interest.
