@@ -231,7 +231,8 @@ def payment_options_text() -> str:
     return (
         f"Please pay {PRICE} (standard rate; our sliding scale runs from $10 to $25) using one of these options:\n"
         f"- Zelle ID: {ZELLE_CONTACT}{' (preferred, no processing fees)' if VENMO_ENABLED else ''}. "
-        "Please include the date of play.\n"
+        "Please include the date of play. Use the Zelle ID (or the QR code on the signup page), "
+        "NOT an email address. Zelle payments sent to an email address will not go through.\n"
         + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
            if VENMO_ENABLED else "")
         + "- Cash in person at the field\n"
@@ -402,6 +403,7 @@ Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')
 
 
 def render_payment_info():
+    st.subheader("Payment")
     st.markdown(
         "**Rates per night**\n"
         "* Community: \\$10-18\n"
@@ -416,9 +418,13 @@ def render_payment_info():
         )
     else:
         st.markdown(
-            "**Payment methods** - Zelle or cash. Venmo is coming soon but isn't set up yet.  \n"
+            "**Payment methods** - Zelle or cash.  \n"
             f"**Zelle ID:** {ZELLE_CONTACT}"
         )
+    st.warning(
+        f"Send Zelle payments to the Zelle ID **{ZELLE_CONTACT}** or scan the QR code below. "
+        "Do **not** send Zelle to an email address. It will not go through."
+    )
 
 
 def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
@@ -465,7 +471,6 @@ def render_signup_form(session: date, roster: List[Spot]):
         spot_open = open_spots > 0
         if spot_open:
             st.success(f"{open_spots} {label} spot{'s' if open_spots != 1 else ''} open.")
-            render_payment_info()
         else:
             st.info(
                 f"{label} spots are full, so you'll be added to the {label} waitlist. No payment needed now. "
@@ -508,7 +513,6 @@ def render_manage(session: date, rows: List[Dict], roster: List[Spot], waitlist:
     st.subheader("Can't make it?")
     st.write("Enter the email you signed up with to remove your signup or waitlist spot.")
     email = st.text_input("Email", key="manage_email", label_visibility="collapsed", placeholder="your.email@example.com")
-    st.image("Zelle_QR.png", caption="Zelle QR code")
     if not email:
         return
     row = find_active(rows, email)
@@ -578,8 +582,11 @@ def main():
     left, right = st.columns([3, 2], gap="large")
     with left:
         render_signup_form(session, roster)
-    with right:
+        st.divider()
         render_manage(session, rows, roster, waitlist)
+    with right:
+        render_payment_info()
+        st.image("Zelle_QR.png", caption="Zelle QR code", width=220)
 
     st.divider()
     st.caption(
