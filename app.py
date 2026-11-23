@@ -23,6 +23,18 @@ PRICE = "$20"
 # Sign-up spots per side. Two MMP organizers (Graham and Tuc) play every week without
 # signing up, so MMP has 2 fewer spots and the field ends up 12 MMP + 12 WMP.
 SPOTS = {"mmp": 10, "wmp": 12}
+# Weeks with a different number of spots on one side (Nov 23 - Dec 14: 11 MMP).
+SPOTS_OVERRIDES = {
+    date(2026, 11, 23): {"mmp": 11},
+    date(2026, 11, 30): {"mmp": 11},
+    date(2026, 12, 7): {"mmp": 11},
+    date(2026, 12, 14): {"mmp": 11},
+}
+
+
+def spots_for(session, side: str) -> int:
+    d = session if isinstance(session, date) else date.fromisoformat(str(session)[:10])
+    return SPOTS_OVERRIDES.get(d, {}).get(side, SPOTS[side])
 
 # Signups open on the Friday before each Monday session at this time.
 SIGNUP_OPEN_DAYS_BEFORE = 3
@@ -145,15 +157,15 @@ class Spot:
     side: Optional[str]  # "mmp" / "wmp" for rostered players, None for waitlisted
 
 
-def build_roster(rows: List[Dict]) -> Tuple[List[Spot], List[Spot]]:
-    """Fill the roster in signup order. Each side gets SPOTS[side] spots."""
+def build_roster(rows: List[Dict], session: date) -> Tuple[List[Spot], List[Spot]]:
+    """Fill the roster in signup order. Each side gets spots_for(session, side) spots."""
     counts = {"mmp": 0, "wmp": 0}
     roster, waitlist = [], []
     for row in sorted(rows, key=lambda r: r["id"]):  # ids increase in signup order
         side = row["gender_match"]
         if side not in counts:
             continue
-        if counts[side] < SPOTS[side]:
+        if counts[side] < spots_for(session, side):
             counts[side] += 1
             roster.append(Spot(row, side))
         else:
@@ -342,7 +354,7 @@ def do_signup(session: date, name: str, email: str, gender_match: str, payment: 
             return False, "That email is already signed up for this week."
         raise
 
-    roster, waitlist = build_roster(load_rows(session))
+    roster, waitlist = build_roster(load_rows(session), session)
     if any(s.row["id"] == inserted["id"] for s in roster):
         email_status(inserted, session, True)
         if payment is None:  # a spot opened up between loading the page and submitting
@@ -355,11 +367,11 @@ def do_signup(session: date, name: str, email: str, gender_match: str, payment: 
 
 
 def do_cancel(session: date, row: Dict) -> str:
-    before, _ = build_roster(load_rows(session))
+    before, _ = build_roster(load_rows(session), session)
     before_ids = {s.row["id"] for s in before}
     was_on_roster = row["id"] in before_ids
     get_db().table(TABLE).update({"cancelled_at": datetime.now(TZ).isoformat()}).eq("id", row["id"]).execute()
-    after, _ = build_roster(load_rows(session))
+    after, _ = build_roster(load_rows(session), session)
     promoted = [s.row for s in after if s.row["id"] not in before_ids]
     for p in promoted:
         email_promoted(p, session)
@@ -375,14 +387,14 @@ def do_cancel(session: date, row: Dict) -> str:
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
-def render_info():
+def render_info(session: date):
     st.markdown(
         f"""
 Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')}
 
-- {SPOTS['mmp']} MMP and {SPOTS['wmp']} WMP sign-up spots per week on one field, 2:2 gender match ratio. Graham and Tuc are part of the organizing group and will play every week which is why there are 10 MMP spots available.
+- {spots_for(session, 'mmp')} MMP and {spots_for(session, 'wmp')} WMP sign-up spots this week on one field, 2:2 gender match ratio. Graham and Tuc are part of the organizing group and will play every week which is why there are {spots_for(session, 'mmp')} MMP spots available.
 - **{PRICE} per night**, pay as you go, first come, first served. Signups open **Fridays** for the following Monday.
-- We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**.
+- We will use the full [USAG ruleset](https://usagoaltimate.usetopscore.com/full-rule-set), which includes **controlled contact**. See our [Winter Hoopla rules doc](https://docs.google.com/document/d/1A9NDz113Cw4qZQB8PA5RlyVzL57kmvZgU0tMvcKkz-w/edit?tab=t.2bjdohz6qsi0) for details.
 - Molded plastic or turf cleats are fine. Bring a light, a dark, and water.
 - The first 15-30 minutes may be dedicated to drills depending on interest.
 """
@@ -419,7 +431,7 @@ def render_roster(session: date, roster: List[Spot], waitlist: List[Spot]):
     col1, col2 = st.columns(2)
     for col, title, spots in ((col1, "MMP", mmp), (col2, "WMP", wmp)):
         with col:
-            st.markdown(f"#### {title} ({len(spots)}/{SPOTS[title.lower()]})")
+            st.markdown(f"#### {title} ({len(spots)}/{spots_for(session, title.lower())})")
             if spots:
                 st.markdown("\n".join(f"{i}. {s.row['name']}" for i, s in enumerate(spots, 1)))
             else:
@@ -449,7 +461,7 @@ def render_signup_form(session: date, roster: List[Spot]):
     spot_open = False
     if gm:
         label = GENDER_LABELS[gm]
-        open_spots = SPOTS[gm] - sum(1 for s in roster if s.side == gm)
+        open_spots = spots_for(session, gm) - sum(1 for s in roster if s.side == gm)
         spot_open = open_spots > 0
         if spot_open:
             st.success(f"{open_spots} {label} spot{'s' if open_spots != 1 else ''} open.")
@@ -536,7 +548,7 @@ def main():
             return
         week = SESSIONS.index(session) + 1
         st.subheader(f"Week {week} of {NUM_SESSIONS}: {fmt_day(session)}, {TIME_LABEL}")
-        render_info()
+        render_info(session)
     st.divider()
 
     opens = signup_opens_at(session)
@@ -550,7 +562,7 @@ def main():
         getattr(st, kind)(msg)
 
     rows = load_rows(session)
-    roster, waitlist = build_roster(rows)
+    roster, waitlist = build_roster(rows, session)
 
     st.warning(
         "If you need to cancel, remove your signup as soon as possible so somebody on the waitlist can join."
