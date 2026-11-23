@@ -589,10 +589,7 @@ def main():
         st.image("Zelle_QR.png", caption="Zelle QR code", width=220)
 
     st.divider()
-    st.caption(
-        f"Questions or feedback? Email {CONTACT_EMAIL}."
-        + (" You'll get an email when you sign up or move off the waitlist." if EMAIL_CONFIG["enabled"] else "")
-    )
+    st.caption(f"Questions or feedback? Email {CONTACT_EMAIL}.")
 
 
 if __name__ == "__main__":
