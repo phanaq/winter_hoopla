@@ -19,7 +19,7 @@ NUM_SESSIONS = 7
 START_TIME = time(20, 15)
 END_TIME = time(22, 15)
 TIME_LABEL = "8:15 - 10:15pm"
-PRICE = "$20"
+PRICE = "$18"  # standard rate; sliding scale is in render_payment_info
 # Sign-up spots per side. Two MMP organizers (Graham and Tuc) play every week without
 # signing up, so MMP has 2 fewer spots and the field ends up 12 MMP + 12 WMP.
 SPOTS = {"mmp": 10, "wmp": 12}
@@ -229,7 +229,7 @@ def session_details(session: date) -> str:
 
 def payment_options_text() -> str:
     return (
-        f"Please pay {PRICE} using one of these options:\n"
+        f"Please pay {PRICE} (standard rate; our sliding scale runs from $10 to $25) using one of these options:\n"
         f"- Zelle ID: {ZELLE_CONTACT}{' (preferred, no processing fees)' if VENMO_ENABLED else ''}. "
         "Please include the date of play.\n"
         + (f"- Venmo: @{VENMO_HANDLE} (https://venmo.com/u/{VENMO_HANDLE}). Please include the date of play.\n"
@@ -404,9 +404,9 @@ Session runs {SESSIONS[0].strftime('%B %-d')} - {SESSIONS[-1].strftime('%B %-d')
 def render_payment_info():
     st.markdown(
         "**Rates per night**\n"
-        "* Community: \\$10-20\n"
-        "* Standard: \\$20\n"
-        "* Supporter: \\$20-30"
+        "* Community: \\$10-18\n"
+        "* Standard: \\$18\n"
+        "* Supporter: \\$18-25"
     )
     if VENMO_ENABLED:
         st.markdown(
