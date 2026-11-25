@@ -530,30 +530,24 @@ def render_manage(session: date, rows: List[Dict], roster: List[Spot], waitlist:
         st.rerun()
 
 
-def main():
-    st.set_page_config(page_title="Mixed Winter Hoopla", page_icon=drive_image(FAVICON_DRIVE_ID) or "🥏", layout="wide")
+def render_past_week(session: date):
+    """Read-only final roster for a week that has already been played."""
+    week = SESSIONS.index(session) + 1
+    st.subheader(f"Week {week}: {fmt_day(session)}")
+    roster, _ = build_roster(load_rows(session), session)
+    col1, col2 = st.columns(2)
+    for col, side in ((col1, "mmp"), (col2, "wmp")):
+        names = [s.row["name"] for s in roster if s.side == side]
+        with col:
+            st.markdown(f"#### {side.upper()} ({len(names)})")
+            if names:
+                st.markdown("\n".join(f"{i}. {n}" for i, n in enumerate(names, 1)))
+            else:
+                st.caption(f"No {side.upper()} players")
+    st.caption("Final roster for this week. This list is read-only.")
 
-    at = now()
-    session = current_session(at)
 
-    logo = drive_image(LOGO_DRIVE_ID)
-    if logo:
-        logo_col, header_col = st.columns([1, 4])
-        logo_col.image(logo)
-    else:
-        header_col = st.container()
-
-    with header_col:
-        st.title("Session 1 (Mixed)" if logo else SEASON_TITLE)
-        if session is None:
-            st.success("That's a wrap on Session 1 Mixed — thanks for playing! 🥏")
-            st.write(f"Questions or want updates on Session 2? Email {CONTACT_EMAIL}.")
-            return
-        week = SESSIONS.index(session) + 1
-        st.subheader(f"Week {week} of {NUM_SESSIONS}: {fmt_day(session)}, {TIME_LABEL}")
-        render_info(session)
-    st.divider()
-
+def render_current_week(session: date, at: datetime):
     opens = signup_opens_at(session)
     if at < opens:
         st.info(f"⏰ Signups for **{fmt_day(session)}** open **{fmt_dt(opens)}**. Check back then!")
@@ -589,6 +583,47 @@ def main():
 
     st.divider()
     st.caption(f"Questions or feedback? Email {CONTACT_EMAIL}.")
+
+
+def main():
+    st.set_page_config(page_title="Mixed Winter Hoopla", page_icon=drive_image(FAVICON_DRIVE_ID) or "🥏", layout="wide")
+
+    at = now()
+    session = current_session(at)
+    past = [s for s in reversed(SESSIONS) if session_ends_at(s) <= at]  # most recent first
+
+    logo = drive_image(LOGO_DRIVE_ID)
+    if logo:
+        logo_col, header_col = st.columns([1, 4])
+        logo_col.image(logo)
+    else:
+        header_col = st.container()
+
+    with header_col:
+        st.title("Session 1 (Mixed)" if logo else SEASON_TITLE)
+        if session is None:
+            st.success("That's a wrap on Session 1 Mixed — thanks for playing! 🥏")
+            st.write(f"Questions or want updates on Session 2? Email {CONTACT_EMAIL}.")
+        else:
+            week = SESSIONS.index(session) + 1
+            st.subheader(f"Week {week} of {NUM_SESSIONS}: {fmt_day(session)}, {TIME_LABEL}")
+            render_info(session)
+    st.divider()
+
+    labels = (["This week"] if session else []) + [
+        f"Week {SESSIONS.index(s) + 1} · {s.strftime('%b')} {s.day}" for s in past
+    ]
+    if not labels:
+        return
+    tabs = st.tabs(labels)
+    offset = 0
+    if session:
+        with tabs[0]:
+            render_current_week(session, at)
+        offset = 1
+    for tab, s in zip(tabs[offset:], past):
+        with tab:
+            render_past_week(s)
 
 
 if __name__ == "__main__":
